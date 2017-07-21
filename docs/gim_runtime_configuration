@@ -1,0 +1,148 @@
+/*
+ * Copyright (c) 2014-2017 Advanced Micro Devices, Inc. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE
+ */
+
+GIM Runtime Configuration
+
+The GIM configuration file /etc/gim_config can be created after first time load
+gim.ko. It can configure runtime GIM behaviors.
+
+There are 7 options: vf_num, pf_fb, vf_fb, fb_option, sched_interval,
+sched_option, fb_clear.
+
+1. vf_num
+ The "vf_num" specifies the number of virtual functions to be enabled. It can
+ be set to any number between 0 and 16.
+
+ vf_num = 0
+ It enables maximum available virtual functions that the specific in
+ vendor defined CAP register SRIOV_NUM_VFS in pci config space.
+
+ vf_num=[1…16]
+ enables the specified number of VFs on the bus when GIM is loaded. If the
+ value is set to larger than the GPU/VBios combination can support it will
+ be reduced to the number defined in register SRIOV_NUM_VFS.
+
+2. pf_fb
+ The “pf_fb” parameter specifies the amount of Frame Buffer memory reserved
+ for the PF.  The Frame Buffer size is in units of 1 MB but should be specified
+ in multiples of 16MB.  If the size is not specified in a multiple of 16MB, the
+ size will be rounded down to the nearest 16MB boundary. Valid values are
+ between 0 and 65536. A value of 65536 represents 64G which is far beyond the
+ 8GB FB size of the S7150. Setting bigger PF frame buffer leads to less VF
+ frame buffer left.
+
+ Min_PF_FB_Size is same as BAR0 size. But if "large bar0" feature is
+ enabled, Min_PF_FB_Size will be fixed to 16M.
+
+ Max_PF_FB_Size = total FB - (Min_VF_FB_Size * vf_num) - CSA - Alignment.
+ total FB is get from register TOTAL_FB_AVAILABLE in PCI header.
+ Min_VF_FB_Size is VF FB BAR0 aperture size. CSA means context save/restore
+ area.
+
+ If a value is specified above the Max_PF_FB_Size, then the real PF FB size
+ will be Max_PF_FB_Size.
+
+ If a value is specified below the Min_PF_FB_Size, then the real PF FB size
+ will be Min_PF_FB_Size.
+
+ pf_fb=[0…Min_PF_FB_Size]
+ PF FB size is Min_PF_FB_Size.
+
+ pf_fb=[Min_PF_FB_Size…Max_PF_FB_Size]
+ Size of PF FB reservation in MB units. The PF FB should be in multiple of 16M
+ unit. If set to a value which is not in multiple of 16M, the size will be
+ rounded down to nearest 16M boundary.
+
+ pf_fb=[16…8176]
+ PF FB size is Max_PF_FB_Size.
+
+3. vf_fb
+ The “vf_fb” specifies the amount of VF FB size in the unit of MB. The valid
+ values are between 0 and 65536. vf_fb should be set to a multiple of 16M, any
+ value which is not in a multiple of 16M will be rounded down to the nearest
+ 16M boundary. A value of 65536 means 64G which is far beyond the actual FB
+ size 8G on S7150.i VF FB is assigned after PF FB.
+
+ Min_VF_FB_Size = VF FB BAR0 aperture size.
+
+ Max_VF_FB_Size = (total FB - PF FB - reservation)/vf_num, and round down to
+ multiple of 16M.
+
+ vf_fb = 0
+ Divide the available FrameBuffer equally amongst the VFs. Each VF FB size is
+ Max_VF_FB_Size.
+
+ vf_fb[1..65536]
+ Currently, the S7150 has set each VF to have 256M FB aperture in the SRIOV
+ BAR. The VF FB size cannot be smaller than the VF aperture and will be
+ adjusted accordingly. Under some circumstances where SBIOS has difficulties
+ allocating resources for SRIOV a special VBIOS is required that will specify
+ a smaller BAR size as 128MB for each VF.
+
+ if vf_fb < Min_VF_FB_Size, the final real frame buffer is Min_VF_FB_Size.
+ if vf_fb > Max_VF_FB_Size, the final real frame buffer is Max_VF_FB_Size.
+ otherwise, the final real frame buffer is same as vf_fb.
+
+ This option is valid only when fb_option=0.
+
+4. fb_option
+ The "fb_option" specifies the VF frame buffer partitioning method. It only
+ supports two values:
+
+ fb_option = 0
+ Divide the Frame Buffer equally amongst all of the available VFs.  This is
+ the default value.  The size of the VF FB size can be modified by the vf_fb
+ option.
+
+ fb_option = 1
+ Each VF can have a different FB size. It is not supported yet.
+
+5. sched_interval
+ Scheduling time quanta in milliseconds. Thed valid value are between 0 and
+ 2000.
+
+ sched_interval = 0
+ default quanta(6ms)
+
+ sched_interval = [1:2000]
+ Real number of quanta in miliseconds.
+
+6. sched_option
+ The "sched_option" specifies the algorithm that will be used to determine how
+ the GPU time is divided between the active VFs. It only supports two values:
+
+ sched_option = 0
+ Active VFs will get a time slice in a "round robin" style. The size of the time
+ slice is determined by the "sched_interval" option.
+
+ sched_option = 1
+ All VFs will share HW resoruce equally by almost same time slice in turns. Even
+ the VF is stop, the VF still can occupy the HW resource.
+
+7. fb_clear
+ Clear the VRAM for VF
+
+ fb_clear = 0
+ Default value.Skip to clear framebuffer
+
+ fb_clear = 1
+ Clear FB of VF when VF is free or down

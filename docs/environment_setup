@@ -1,0 +1,169 @@
+/*
+ * Copyright (c) 2014-2017 Advanced Micro Devices, Inc. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE
+ */
+
+Environment Setup
+
+Platform
+--------
+1. Necessary HW features
+
+2. BIOS setting
+
+Host Software
+-------------
+1.Ubuntu16.04 server
+ 1.1 OS installation and configuration
+  1.1.1 just install OS step by step by the installation tips,
+  there is no special configure, but remeber to select virtualization choice when install.
+
+ 1.2 Hypervisor installation and configuration
+  1.2.1 update the software and kernel
+  a. apt-get update
+  b. apt-get upgrade
+  c. apt-get dist-upgrade
+  1.2.2 download the kernel source code and install the build dependency
+  a. apt-get source linux-image-$(uname -r) to download the the current running version kernel.
+  b. apt-get build-dep linux-image-$(uname -r)
+  c. cd the download kernel source dir
+  d. cp /boot/config-$(uname -r) ./.config or make oldconfig to create .config file with your running kernel's configuration
+  e. apt-get install libncurses5 libncurses5-dev
+  f. apt-get install qt3-dev-tools libqt3-mt-dev
+  g. menuconfig (by default)
+  1.2.3 patch the kernel for SRIOV support and build kernel
+  a. patch the following patches
+  0001-Added-legacy-endpoint-type-to-sriov-for-ubuntu-4.4.0-75-generic.diff
+  0002-add-pci-io-access-cap-for-ubuntu-4.4.0-75-generic.diff
+  b. make-kpkg -j N --initrd --append-to-version=my-very-own-kernel kernel-image kernel-headers to buile kernel
+  where N is how many jobs to run in parallel (usually the number of CPUs you have), and my-very-own-kernel is
+  a custom string to identify the build
+  1.2.4 install kernel
+  a. dpkg -i *.deb to install kernel-image and header which are ready after build compelete.
+  1.2.5 configure to blacklist amdgpu driver in host
+  a. add "blacklist amdgpu" in /etc/modprobe.d/blacklist.conf
+  b. update-initramfs -u
+  1.2.6 configure to enable iommu
+  a. edit /etc/default/grub
+  change GRUB_CMDLINE_LINUX_DEFAULT="quiet splash" to GRUB_CMDLINE_LINUX_DEFAULT="quiet splash intel_iommu=on" if Intel CPU
+  change GRUB_CMDLINE_LINUX_DEFAULT="quiet splash" to GRUB_CMDLINE_LINUX_DEFAULT="quiet splash amd_iommu=on" if AMD CPU
+  b. update-grub
+
+ 1.3 GIM installation
+  1.3.1 build and install gim
+  a. copy the gim source code to host machine.
+  b. run gim.sh
+  c. modprobe gim
+
+
+2.CentOS7.3
+ 2.1 OS installation and configuration
+ 2.2 Hypervisor installation and configuration
+ 2.3 GIM installation
+
+Guest Software
+--------------
+Here is the assumption that on host system, the GIM driver has
+been successfully loaded and guest systems are properly installed.
+Also make sure that one virtualized AMD GPU device is assigned to
+the target guest system, which is normally done by adding PCI
+Host Device to the guest as a passthrough device(Note that one
+virtualized VGA device can not be shared by two or more running
+guest systems at the same time). Besides, the network on guest
+system should work fine.
+
+1.Windows7 64bit
+ 1.1 Check the guest system IP address
+ 1.2 Install UltraVNC server on the guest system
+ 1.3 Download amdgpu-pro driver from(TBD)
+     ******
+     and install the driver properly
+ 1.4 Reboot the guest system after finishing installation. If the
+     driver installation is successful,the startup screen should
+     freeze at some point before login interface shows up
+ 1.5 Connect the guest through VNC remote desktop a few seconds after
+     the screen freezes
+
+2.Windows10 TH2 64bit
+ 2.1 Check the guest system IP address
+ 2.2 Install UltraVNC server on the guest system
+ 2.3 Download amdgpu-pro driver from(TBD)
+     ******
+     and install the driver properly.
+ 2.4 Reboot the guest system after finishing installation.If the
+     driver installation is successful,the startup screen should
+     freeze at some point before login interface shows up and then
+     turns to black.
+ 2.5 Connect the guest through VNC remote desktop a few seconds after
+     the black screen shows up
+
+3.Ubuntu16.04 desktop 64bit
+ 3.1 Check the guest system IP address
+ 3.2 Install X11VNC server and config it to run at system
+     startup
+ 3.3 Run command "lspci | grep AMD" to check the BDF number
+     of the AMD GPU device
+ 3.4 Download amdgpu-pro driver from(TBD)
+     *****
+     and intall the driver properly
+ 3.5 In directory /usr/share/X11/xorg.conf.d, edit file
+     10-amdgpu-pro.conf and add the following section in it
+      Section "Device"
+               Identifier "amdgpu"
+	       Driver "amdgpu"
+	       BusID  "PCI:xx:xx:xx"
+      EndSection
+     where xx:xx:xx is the BDF number in step 3.3
+ 3.6 Edit the grub configuration to enter console mode at system
+     startup
+ 3.7 Edit file /etc/modprobe.d/blacklist.conf, add "blacklist amdgpu"
+     to the end of the file, and run command "sudo update-initramfs -u
+     -k all"
+ 3.8 Reboot the guest system
+ 3.9 Login guest system, load amdgpu driver by "modprobe amdgpu" and
+     start the lightdm service
+ 3.10 Connect the guest system through VNC remote desktop
+
+4.CentOS7.3 64bit
+ 4.1 Check the guest system IP address
+ 4.2 Install X11VNC server and config it to run at system
+     startup
+ 4.3 Run command "lspci | grep AMD" to check the BDF number
+     of the AMD GPU device
+ 4.4 Download amdgpu-pro driver from(TBD)
+     *****
+     and intall the driver properly
+ 4.5 Download xorg.conf file from(TBD)
+	*****
+     to /etc/X11/xorg.conf.d, edit the following section in
+     xorg.conf
+	Section "Device"
+	        Identifier "Card0"
+	        Driver "amdgpu"
+	        BusID  "PCI:xx:xx:xx"
+	 EndSection
+     and change xx:xx:xx to the BDF number in step 3.3
+ 4.6 Edit the grub configuration to enter console mode at system
+     startup(this is recommended but not mandatory)
+ 4.7 Reboot the guest system
+ 4.8 Login guest system and run command "startx" (this
+     should be skipped if step 4.6 is not done)
+ 4.9 Connect the guest system through VNC remote desktop
+

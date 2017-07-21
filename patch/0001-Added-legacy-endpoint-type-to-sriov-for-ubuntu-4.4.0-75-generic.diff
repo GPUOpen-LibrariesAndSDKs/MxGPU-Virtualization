@@ -1,0 +1,12 @@
+--- ./linux-4.4.0/drivers/pci/iov.c	2017-04-26 18:35:14.060299368 +0800
++++ ../linux-4.4.0/drivers/pci/iov.c	2017-04-25 16:03:55.258100666 +0800
+@@ -388,7 +388,8 @@ static int sriov_init(struct pci_dev *de
+ 	struct pci_dev *pdev;
+ 
+ 	if (pci_pcie_type(dev) != PCI_EXP_TYPE_RC_END &&
+-	    pci_pcie_type(dev) != PCI_EXP_TYPE_ENDPOINT)
++	    pci_pcie_type(dev) != PCI_EXP_TYPE_ENDPOINT &&
++	    pci_pcie_type(dev) != PCI_EXP_TYPE_LEG_END)
+ 		return -ENODEV;
+ 
+ 	pci_read_config_word(dev, pos + PCI_SRIOV_CTRL, &ctrl);

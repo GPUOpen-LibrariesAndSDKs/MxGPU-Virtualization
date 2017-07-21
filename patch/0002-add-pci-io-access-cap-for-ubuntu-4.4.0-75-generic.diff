@@ -1,0 +1,11 @@
+--- linux-4.4.0/drivers/vfio/pci/vfio_pci_config.c	2017-05-02 18:08:22.768271583 +0800
++++ ../linux-4.4.0/drivers/vfio/pci/vfio_pci_config.c	2017-04-25 16:06:24.642099564 +0800
+@@ -482,7 +482,7 @@ static int vfio_basic_config_read(struct
+ 		u16 cmd = le16_to_cpu(*(__le16 *)&vdev->vconfig[PCI_COMMAND]);
+ 		u32 tmp_val = le32_to_cpu(*val);
+ 
+-		tmp_val |= cmd & PCI_COMMAND_MEMORY;
++		tmp_val |= cmd & (PCI_COMMAND_MEMORY | PCI_COMMAND_IO);
+ 		*val = cpu_to_le32(tmp_val);
+ 	}
+ 
