@@ -67,6 +67,10 @@ THE SOFTWARE
    gim.ko to /lib/modules/$(KERNELRELEASE)/GIM/.
  3. Generally, Just run helper SRC_ROOT/gim.sh in a command terminal also can
    completed build and installation. And gim.sh -help can display usages.
+ 4. Blacklist amdgpu and amdkfd and reboot the server. Such as, under Ubuntu, by adding the following line to the end of file /etc/modprobe.d/blacklist.conf
+    blacklist amdgpu
+    blacklist amdkfd
+
 
 ## HOW TO LOAD:
  1. Typing command "modprobe gim " in terminal can load gim driver
