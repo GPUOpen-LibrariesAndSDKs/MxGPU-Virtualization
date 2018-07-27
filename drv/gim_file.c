@@ -120,8 +120,9 @@ int file_read(struct file *file, unsigned long long offset, unsigned char *data,
 }
 
 int file_write(struct file *file, unsigned long long offset,
-		unsigned char *data, unsigned int size)
+	       unsigned char *data, unsigned int size)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 	mm_segment_t oldfs;
 	int ret;
 
@@ -133,6 +134,9 @@ int file_write(struct file *file, unsigned long long offset,
 	set_fs(oldfs);
 
 	return ret;
+#else
+	return kernel_write(file, data, size, &offset);
+#endif
 }
 
 int file_sync(struct file *file)
