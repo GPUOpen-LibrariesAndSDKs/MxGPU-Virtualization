@@ -24,6 +24,7 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/mod_devicetable.h>
+#include <linux/version.h>
 #include "gim_adapter.h"
 #include "gim_unwrapper.h"
 #include "gim_pci.h"
@@ -63,21 +64,23 @@ static const struct pci_device_id gim_pci_tbl[] = {
 
 struct aer_item device_list[MAX_BRIDGES];
 
-static ssize_t gim_sriov(struct device_driver *drv, const char *buf,
+static ssize_t sriov_store(struct device_driver *drv, const char *buf,
 		size_t count)
 {
 	call_interface_functions(buf, count);
 	return count;
 }
 
-static ssize_t gim_sriov_show(struct device_driver *drv, char *buf)
+static ssize_t sriov_show(struct device_driver *drv, char *buf)
 {
 	return respond_interface_functions(buf);
 }
 
-
-static DRIVER_ATTR(sriov, (S_IWUSR|S_IRUSR), gim_sriov_show, gim_sriov);
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
+static DRIVER_ATTR(sriov, (S_IWUSR | S_IRUSR), sriov_show, sriov_store);
+#else
+static DRIVER_ATTR_RW(sriov);
+#endif
 
 static int gim_probe(struct pci_dev *pdev,
 		const struct pci_device_id *ent)

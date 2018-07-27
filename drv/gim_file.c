@@ -22,7 +22,6 @@
 
 #include <linux/fs.h>
 #include <asm/segment.h>
-#include <asm/uaccess.h>
 #include <linux/buffer_head.h>
 #include <linux/version.h>
 
@@ -60,9 +59,13 @@ unsigned long long file_size(struct file *file)
 #if !defined(XEN_DUNDEE) && (KERNEL_VERSION(3, 9, 0) > LINUX_VERSION_CODE)
 	/* 3.4.9 */
 	vfs_getattr(file->f_vfsmnt, file->f_dentry, &ks);
-#else
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0)
 	/* 3.14.0 + */
 	vfs_getattr(&file->f_path, &ks);
+#else
+	/* 4.11.0 + */
+	vfs_getattr(&file->f_path, &ks, STATX_TYPE | STATX_MODE,
+		    AT_STATX_SYNC_AS_STAT);
 #endif
 	set_fs(oldfs);
 
@@ -97,8 +100,9 @@ int file_truncate(struct file *file, unsigned long long size)
 }
 
 int file_read(struct file *file, unsigned long long offset, unsigned char *data,
-		unsigned int size)
+	      unsigned int size)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 	mm_segment_t oldfs;
 	int ret;
 
@@ -110,11 +114,15 @@ int file_read(struct file *file, unsigned long long offset, unsigned char *data,
 	set_fs(oldfs);
 
 	return ret;
+#else
+	return kernel_read(file, data, size, &offset);
+#endif
 }
 
 int file_write(struct file *file, unsigned long long offset,
-		unsigned char *data, unsigned int size)
+	       unsigned char *data, unsigned int size)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 	mm_segment_t oldfs;
 	int ret;
 
@@ -126,6 +134,9 @@ int file_write(struct file *file, unsigned long long offset,
 	set_fs(oldfs);
 
 	return ret;
+#else
+	return kernel_write(file, data, size, &offset);
+#endif
 }
 
 int file_sync(struct file *file)
