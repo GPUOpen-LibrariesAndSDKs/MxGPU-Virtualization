@@ -36,10 +36,10 @@ uint8_t debug_config_space[4096];
  * Config space restore table
  *
  * This table contains the config space offsets (with names)
- *in the order that they need to be restored.
- *Do not alter this table unless you absolutely know what you are doing
- *as changing the order or moving values can cause unexpected results
- *or system hangs.
+ * in the order that they need to be restored.
+ * Do not alter this table unless you absolutely know what you are doing
+ * as changing the order or moving values can cause unexpected results
+ * or system hangs.
  */
 
 static struct pci_def restore_tbl[] = {
@@ -504,10 +504,11 @@ void pci_config_save(struct pci_dev *dev, uint8_t *buf, int count)
 
 	for (i = 0; i < count; i += 4) {
 		pci_read_config_dword(dev, i, pcfg);
-		/* Hack: Work-around ALERT!!! */
+		
 		/* When we restore pci config space,
-		*don't want to restore VF_ENABLE bit in SR-IOV structure.
+		*  we don't want to restore VF_ENABLE bit in SR-IOV structure.
 		*/
+
 		/* Prevent restore by not saving it in the first place. */
 		if ((pos != 0) && (i == pos+PCI_SRIOV_CTRL)) {
 			gim_info("pci_config_save: Found PCI_SRIOV_CTRL = 0x%08x\n",
@@ -665,12 +666,7 @@ void pci_config_restore(struct pci_dev *dev, uint8_t *buf, int count)
 
 	} else {
 		gim_info("Restore VF config space");
-		/* This works for VF */
-		/* i = 200 - works */
-		/* Count = 0x200 - doesn't work */
-		/* Count = 0x240 - works */
-		/* count = 0x240; */
-		/* for (i=0x200; i<count; i+=4) */
+		
 		/* Don't try to restore SRIOV or GPUIOV spaces */
 		count = 330;
 		for (i = 0x0; i < count; i += 4) {
@@ -727,31 +723,6 @@ int check_for_error(struct pci_dev *dev, char *comment)
 		return 1;
 	}
 	return 0;
-}
-
-void pci_set_vf_enable_bit(struct pci_dev *dev)
-{
-	uint16_t sriov_control;
-	int pos = get_sriov_offset(dev);
-
-	if (pos == 0) {
-		gim_info("pci_set_vf_enable: Could not find the SRIOV Capability structure\n");
-		return;
-	}
-
-	pci_read_config_word(dev, pos + PCI_SRIOV_CTRL, &sriov_control);
-	gim_info("PCI_SRIOV_CTRL = 0x%04x, pos = 0x%03x\n",
-			sriov_control, pos);
-
-	sriov_control |= PCI_SRIOV_CTRL_VFE;
-
-	gim_info("Set VF_ENABLE - write PCI_SRIOV_CTRL = 0x%04x\n",
-					sriov_control);
-	pci_write_config_word(dev, pos + PCI_SRIOV_CTRL, sriov_control);
-	/* Section 3.3.3.1 of SRIOV spec "Software must wait 100msec
-	*after changing VF Enable bit ..."
-	*/
-	mdelay(1000);
 }
 
 void pci_disable_error_reporting(struct pci_dev *dev)

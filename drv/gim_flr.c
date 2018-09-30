@@ -145,13 +145,13 @@ static int gim_restore_vddgfx_state(struct adapter *adapt, struct function *vf)
 					ENABLE,
 					1);
 	pf_write_register(adapt, mmRLC_GPU_IOV_F32_CNTL, rlc_iov_cntl);
-	gim_info("RLC_V enalbed\n");
+	gim_info("RLC_V enabled\n");
 
 	/* Re-enable RLC */
 	rlc_cntl = pf_read_register(adapt, mmRLC_CNTL);
 	rlc_cntl = REG_SET_FIELD(rlc_cntl, RLC_CNTL, RLC_ENABLE_F32, 1);
 	pf_write_register(adapt, mmRLC_CNTL, rlc_cntl);
-	gim_info("RLC_G enalbed\n");
+	gim_info("RLC_G enabled\n");
 
 	while (pf_read_register(adapt, mmRLC_GPU_IOV_SCRATCH_ADDR) != 0x0)
 		pf_read_register(adapt, mmRLC_GPU_IOV_SCRATCH_DATA);
@@ -178,7 +178,7 @@ static int gim_restore_vddgfx_state(struct adapter *adapt, struct function *vf)
 				0x1f);
 
 	load_rlcv_state(vf);
-	gim_info("RLCV responced LOAD_RLCV_STATE\n");
+	gim_info("RLCV response LOAD_RLCV_STATE\n");
 
 	return 0;
 }
@@ -267,7 +267,7 @@ static int gim_restore_flr_state(struct adapter *adapt, struct function *vf)
 	return 0;
 }
 
-static int gim_function_level_reset(struct adapter *adapt, struct function *vf)
+int gim_function_level_reset(struct adapter *adapt, struct function *vf)
 {
 	int pos = 0;
 	kcl_type_u16 val = 0;
@@ -293,7 +293,7 @@ static int gim_function_level_reset(struct adapter *adapt, struct function *vf)
 		gim_info("Write 0x%x @pos = 0x%x\n",
 			val, (pos + PCI_EXP_DEVCTL));
 
-		kcl_thread_sleep(100);
+		kcl_thread_sleep(100 * 1000);
 		kcl_pci_enable_bus_master(vf->pci_dev);
 	} else {
 		gim_info("No PCIE CAPs found\n");
@@ -320,6 +320,9 @@ int gim_vf_flr(struct adapter *adapt, struct function *vf)
 
 	/* save FLR state */
 	gim_save_flr_state(adapt, vf);
+
+	do_gettimeofday(&vf->time_log.reset_time);
+	vf->time_log.reset_count++;
 
 	/* do the FLR */
 	if (gim_function_level_reset(adapt, vf) != 0) {

@@ -50,8 +50,8 @@
 #define NO_RESET          0
 #define RESET_REQUEST     1
 
-/* the interval(ms) to check if VF full access timeout */
-#define TIMEOUT_CHECK_INTERVAL  100
+/* the interval(us) to check if VF full access timeout */
+#define TIMEOUT_CHECK_INTERVAL  100 * 1000
 /* timeout(us) */
 #define FULLACCESS_TIMEOUT		(5000 * 1000)
 
@@ -112,7 +112,7 @@ int ih_irq_process(void *context);
 int mailbox_update_index(struct function *func, unsigned int index);
 int mailbox_msg_rcv(struct adapter *adapt, int func_id);
 int mailbox_msg_trn(struct function *func, unsigned int msg_data);
-int mailbox_ack_reciept(struct function *func);
+int mailbox_ack_receipt(struct function *func);
 int mailbox_clear_msg_valid(struct function *func);
 int mailbox_notify_flr(struct adapter *adapt, unsigned int completion);
 

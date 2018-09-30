@@ -59,7 +59,7 @@ const struct irq_source irq_sources[IRQ_SOURCE_MAX_NUMBER] = {
 		0,
 		/* ackRegAckBits */
 		0,
-		/* eanble_func */
+		/* enable_func */
 		NULL,
 		/* ack_func*/
 		NULL,
@@ -124,7 +124,7 @@ static int alloc_iv_ring(struct adapter *adapt)
 	for (idx = 0; idx < page_cnt; idx++) {
 		page = kcl_mem_alloc_page();
 		if (page == NULL) {
-			gim_info("fail to alloc page for iv ring\n");
+			gim_info("Failed to alloc page for iv ring\n");
 			return -1;
 		}
 		ih->iv_ring.page_list[idx] = (unsigned long)page;
@@ -458,7 +458,8 @@ void ih_iv_ring_setup_rptr(struct adapter *adapt)
 }
 
 /*
- * ih_iv_ring_get_pointers() - Reads the iv ring read and write pointers from the hardware
+ * ih_iv_ring_get_pointers() - Reads the iv ring read and write pointers from 
+ * the hardware
  * @adapt: pointer to amdgpuv_device
  * @rptr: iv ring read pointer
  * @wptr: iv ring write pointer
@@ -713,7 +714,7 @@ int ih_irq_process(void *context)
 
 	if (ih_iv_ring_get_pointers(adapt, &ih->ivr_rptr, &ih->ivr_wptr,
 					&ih->is_overflow) != 0) {
-		gim_info("fail to get the rptr and wptr\n");
+		gim_info("Failed to get the rptr and wptr\n");
 		return -1;
 	}
 
@@ -730,7 +731,7 @@ int ih_irq_process(void *context)
 		irq_count = (ih->ivr_num_entries - ih->ivr_rptr)
 				+ ih->ivr_wptr;
 
-	gim_info("recieved %d irqs in one ISR\n", irq_count);
+	gim_info("received %d irqs in one ISR\n", irq_count);
 
 	if (ih->ivr_va == NULL) {
 		gim_info("Invalid iv ring\n");
@@ -753,7 +754,7 @@ int ih_irq_process(void *context)
 
 			switch (iv_ring_entry.source_id) {
 			case IH_IV_SRCID_BIF_VF_PF_MSGBUF_VALID:
-				gim_info("VF_PF_MSGBUF_VALID recieved(Received msg from VF)");
+				gim_info("VF_PF_MSGBUF_VALID received(Received msg from VF)");
 
 				/* Make sure we are talking with the correct
 				 * VF
@@ -769,7 +770,7 @@ int ih_irq_process(void *context)
 				/* simply ack, do other things in work queue.
 				 * Make sure to read the data before ACK'ing
 				 */
-				mailbox_ack_reciept(&adapt->pf);
+				mailbox_ack_receipt(&adapt->pf);
 				/* VF ID */
 				task = &adapt->irq_tasks[source_data];
 
@@ -778,7 +779,8 @@ int ih_irq_process(void *context)
 				if (event_data == IDH_TEXT_MESSAGE)
 					handle_text_message(adapt,
 							source_data);
-				else {
+				else if (event_data !=
+					IDH_REQ_GPU_INVALID_ACCESS) {
 					normal = idh_queue(task, event_data,
 							source_data);
 					need_sched_work = true;
@@ -786,7 +788,8 @@ int ih_irq_process(void *context)
 				break;
 
 			case IH_IV_SRCID_BIF_PF_VF_MSGBUF_ACK:
-				gim_info("PF_VF_MSGBUF_ACK recieved(VF has ACK'd the msg)\n");
+				gim_info("PF_VF_MSGBUF_ACK received"
+					"(VF has ACK'd the msg)\n");
 
 				/* clear msg buffer to VF */
 				mailbox_update_index(&adapt->pf,
@@ -855,6 +858,7 @@ int mailbox_msg_rcv(struct adapter *adapt, int func_id)
 {
 	struct function *func = NULL;
 	int i;
+	int ret;
 
 	for (i = 0; i < adapt->enabled_vfs; i++) {
 		if (adapt->vfs[i].func_id == func_id) {
@@ -879,7 +883,27 @@ int mailbox_msg_rcv(struct adapter *adapt, int func_id)
 	gim_info("read mmMAILBOX_MSGBUF_RCV_DW1: %d", func->msg_data[1]);
 	gim_info("read mmMAILBOX_MSGBUF_RCV_DW2: 0x%x\n", func->msg_data[2]);
 	gim_info("read mmMAILBOX_MSGBUF_RCV_DW3: 0x%x\n", func->msg_data[3]);
-	return func->msg_data[0];
+	gim_dbg("func_option_valid=%d pf_option_valid=%d",
+		func->user_option.valid, adapt->pf.user_option.valid);
+
+	ret = func->msg_data[0];
+	/* If the vf is not user configured but there is a VF configured,
+	 * abort the access
+	 */
+	if (false == func->user_option.valid &&
+		true == adapt->pf.user_option.valid &&
+		ret == IDH_REQ_GPU_INIT_ACCESS) {
+		gim_info("Unconfigured VF is not permitted to launch while "
+			"there is a manually configured VF");
+		ret = IDH_REQ_GPU_INVALID_ACCESS;
+	} else if ((ret < IDH_REQ_GPU_INIT_ACCESS ||
+		ret > IDH_REQ_GPU_RESET_ACCESS)
+		&& adapt->enabled_vfs > 1) {
+		/* limit the mailbox msg types */
+		ret = IDH_REQ_GPU_INVALID_ACCESS;
+	}
+
+	return ret;
 }
 /*
  * mailbox_msg_trn() - Transmit msg to VFs
@@ -892,6 +916,13 @@ int mailbox_msg_trn(struct function *func, unsigned int msg_data)
 	kcl_type_u32 mailbox_control, mailbox_msgbuf_trn_dw0, mailbox_index;
 
 	mailbox_index = read_register(func, mmMAILBOX_INDEX);
+
+	/* before write msg to msg buffer we need ensure TRN_MSG_VALID is 0 */
+	mailbox_control = read_register(func, mmMAILBOX_CONTROL);
+	mailbox_control = REG_SET_FIELD(mailbox_control,
+					MAILBOX_CONTROL,
+					TRN_MSG_VALID, 0);
+	write_register(func, mmMAILBOX_CONTROL, mailbox_control);
 
 	/* Write the new msg to msg buffer */
 	mailbox_msgbuf_trn_dw0 = read_register(func, mmMAILBOX_MSGBUF_TRN_DW0);
@@ -931,7 +962,7 @@ int mailbox_notify_flr(struct adapter *adapt, unsigned int completion)
 	kcl_type_u32 mailbox_control, mailbox_msgbuf_trn_dw0;
 
 	/* Write IDH_FLR_NOTIFICATION to msg buffer to indicate that flr
-	 * triggering
+	 * is triggering
 	 */
 	mailbox_msgbuf_trn_dw0 = pf_read_register(adapt,
 						  mmMAILBOX_MSGBUF_TRN_DW0);
@@ -957,13 +988,13 @@ int mailbox_notify_flr(struct adapter *adapt, unsigned int completion)
 	return 0;
 }
 
-int mailbox_ack_reciept(struct function *func)
+int mailbox_ack_receipt(struct function *func)
 {
 	kcl_type_u32 mailbox_control, mailbox_index;
 
 	mailbox_index = read_register(func, mmMAILBOX_INDEX);
 
-	/* Ack the reciept of the message
+	/* Ack the receipt of the message
 	 * VF driver should clear the trn valid fields in mailbox control
 	 * Then hw will clear the trn ack fields
 	 */
@@ -1040,6 +1071,98 @@ static void loop_once_for_all_active_VFs(struct adapter *adapt)
 	} while (curr_node != adapt->curr_running_func);
 }
 
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+int gim_sysfs_notify(struct function *func,
+		     enum GIM_MMIO_STATUS stat)
+{
+	int ret = 0;
+
+	if (stat == GIM_MMIO_BLOCK ||
+	    stat == GIM_MMIO_UNBLOCK) {
+		func->mmio_status = stat;
+		sysfs_notify(&func->pci_dev->dev.kobj,
+			     NULL, "listen_mmio");
+	} else {
+		ret = -1;
+		gim_err("unsupported action for mmio\n");
+	}
+
+	return ret;
+}
+
+int  switch_mmio_status(struct function *func,
+			enum GIM_MMIO_STATUS stat)
+{
+#ifdef QEMU_MMIO_SECURITY
+	struct completion *compl = NULL;
+
+	if (func == NULL || !(type == GIM_MMIO_BLOCK ||
+			      type == GIM_MMIO_UNBLOCK)) {
+		gim_err("error switch status\n");
+		return ret;
+	}
+
+	gim_info("start to unblock mmio\n");
+
+	if (stat == GIM_MMIO_BLOCK)
+		compl = &func->block_complete;
+	else
+		compl = &func->unblock_complete;
+
+	init_completion(compl);
+
+        return gim_sysfs_notify(func, stat);
+#else
+	return 0;
+#endif
+}
+
+int wait_for_mmio_complete(struct function *func,
+			   enum GIM_MMIO_STATUS type)
+{
+#ifdef QEMU_MMIO_SECURITY
+	long ret = -1;
+	char str[16];
+	unsigned long jiffies = msecs_to_jiffies(WAIT_COMPLETE_TIMEOUT);
+	struct completion *compl = NULL;
+
+	if (func == NULL || !(type == GIM_MMIO_BLOCK ||
+			      type == GIM_MMIO_UNBLOCK)) {
+		gim_err("error wait type\n");
+		return ret;
+	}
+
+	memset(str, 0, sizeof(str));
+	if (type == GIM_MMIO_BLOCK) {
+		compl = &func->block_complete;
+		strcpy(str, "block");
+	} else {
+		compl = &func->unblock_complete;
+		strcpy(str, "unblock");
+	}
+	ret = wait_for_completion_interruptible_timeout(compl, jiffies);
+
+        if (ret == -ERESTARTSYS) {
+                gim_err("%s MMIO be interrupted\n", str);
+                return -1;
+        }
+        else if (ret == 0) {
+                gim_err("%s MMIO timedout\n", str);
+                return -1;
+        } else if (ret < 0) {
+		gim_err("%s MMIO error: %ld\n", str, ret);
+		return -1;
+	} else {
+		gim_info("%s take time: %u ms\n", str,
+			jiffies_to_msecs(ret));
+		return 0;
+	}
+#else
+	return 0;
+#endif
+}
+#endif
+
 /*
  * handle_req_gpu_init_access() - Handle the REQ_GPU_INIT_ACCESS event on
  *				  specific vf
@@ -1098,6 +1221,11 @@ int handle_req_gpu_init_access(struct adapter *adapt, int func_id, int is_reset)
 			}
 		}
 
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+		/* need unblock mmio before init and run new vf*/
+		switch_mmio_status(function, GIM_MMIO_UNBLOCK);
+		wait_for_mmio_complete(function, GIM_MMIO_UNBLOCK);
+#endif
 		gim_info("init and run new VF\n");
 		/* init and enable new vf */
 
@@ -1127,6 +1255,9 @@ int handle_req_gpu_init_access(struct adapter *adapt, int func_id, int is_reset)
 			return -1;
 		}
 
+		/* record the init start time for monitoring */
+		do_gettimeofday(&function->time_log.init_start);
+
 		/* update current running vf */
 		adapt->curr_running_func = new_node;
 
@@ -1146,7 +1277,6 @@ int handle_req_gpu_init_access(struct adapter *adapt, int func_id, int is_reset)
 				 func_id);
 			adapt->vddgfx_state_saved[func_id] = 1;
 		}
-
 out:
 		mutex_unlock(&adapt->curr_running_func_mutex);
 	} else {
@@ -1171,10 +1301,11 @@ int handle_rel_gpu_init_access(struct adapter *adapt, int func_id)
 {
 	struct function *function = NULL;
 	int        i;
+	int	   ret;
 
 	/* stop timeout timer */
 	delete_timer(&adapt->timeout_timer);
-	
+
 	/* get the function context */
 	for (i = 0; i < adapt->enabled_vfs; i++) {
 		if (adapt->vfs[i].func_id == func_id) {
@@ -1187,6 +1318,14 @@ int handle_rel_gpu_init_access(struct adapter *adapt, int func_id)
 		return (-1);
 	}
 
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+	switch_mmio_status(function, GIM_MMIO_BLOCK);
+	wait_for_mmio_complete(function, GIM_MMIO_BLOCK);
+#endif
+
+	/* record init rel time for monitoring */
+	do_gettimeofday(&function->time_log.init_end);
+
 	if (function->in_flr) {
 		gim_info("restore FLR VF %d to available\n", function->func_id);
 		function->in_flr = 0;
@@ -1197,6 +1336,22 @@ int handle_rel_gpu_init_access(struct adapter *adapt, int func_id)
 
 	gim_info("VF%d is indicated as the current running vf\n",
 		 adapt->curr_running_func->func->func_id);
+	ret = gim_init_vf_load_status(function);
+	if (ret) {
+		gim_err("VF[%u] not support liquid mode\n", function->func_id);
+		remove_from_run_list(function);
+		if (adapt->curr_running_func == NULL)
+			switch_to_pf(adapt);
+		else
+			switch_vfs(adapt->curr_running_func->func,
+				   &adapt->pf);
+		init_vf_fb(adapt, function);
+		if (adapt->curr_running_func == NULL)
+			idle_pf(adapt);
+		else
+			switch_vfs(&adapt->pf,
+				   adapt->curr_running_func->func);
+	}
 	resume_scheduler(adapt);
 	return 0;
 }
@@ -1238,8 +1393,7 @@ int handle_req_gpu_fini_access(struct adapter *adapt, int func_id)
 
 			/* to do*/
 			/* do nothing if it's the current running function */
-			}
-		else {
+		} else {
 			while (new_node->func != func)
 				new_node = new_node->next;
 
@@ -1261,7 +1415,15 @@ int handle_req_gpu_fini_access(struct adapter *adapt, int func_id)
 		}
 
 		mutex_unlock(&adapt->curr_running_func_mutex);
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+		switch_mmio_status(func, GIM_MMIO_UNBLOCK);
+		wait_for_mmio_complete(func, GIM_MMIO_UNBLOCK);
+#endif
+
+		/* record fini req time for monitoring */
+		do_gettimeofday(&func->time_log.finish_start);
 	}
+
 	/* start timer for full access timeout check*/
 	start_timer(&adapt->timeout_timer,
 			TIMEOUT_CHECK_INTERVAL);
@@ -1305,6 +1467,14 @@ int handle_rel_gpu_fini_access(struct adapter *adapt, int func_id)
 
 	free_vf(func);
 
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+	switch_mmio_status(func, GIM_MMIO_BLOCK);
+	wait_for_mmio_complete(func, GIM_MMIO_BLOCK);
+#endif
+
+	/* record  fini req time for monitoring */
+	do_gettimeofday(&func->time_log.finish_end);
+
 	mutex_lock(&adapt->curr_running_func_mutex);
 	loop_once_for_all_active_VFs(adapt);
 	mutex_unlock(&adapt->curr_running_func_mutex);
@@ -1330,7 +1500,7 @@ int handle_fullaccess_timeout(struct adapter *adapt)
 	func_id = adapt->vf_req_gpu_access & 0xF;
 	func = vfid_to_function(adapt, func_id);
 
-	gim_info("begin to check full access timeout for VF%d\n", func_id);
+	gim_dbg("begin to check full access timeout for VF%d\n", func_id);
 
 	if (func == NULL) {
 		gim_info("failed to get vf with matched func_id");
@@ -1345,7 +1515,7 @@ int handle_fullaccess_timeout(struct adapter *adapt)
 	time_us = time_diff.tv_sec * 1000000 + time_diff.tv_nsec / 1000;
 
 	if (time_us < FULLACCESS_TIMEOUT) {
-		gim_info("Need to restart the timer\n");
+		gim_dbg("Need to restart the timer\n");
 		return 1;
 	} else {
 		gim_info("VF%d full access timeout\n", func_id);
@@ -1364,12 +1534,13 @@ int handle_fullaccess_timeout(struct adapter *adapt)
 		else
 			remove_from_run_list(func);
 
+		clear_vf_fb(adapt, func);
 		adapt->vf_req_gpu_access = 0;
 		if (adapt->curr_running_func != NULL)
 			resume_scheduler(adapt);
 		gim_info("No need to start the timer\n");
 		return 0;
-		}
+	}
 }
 
 /*
@@ -1405,7 +1576,7 @@ void signal_scheduler(void *pcontext)
 					 req_gpu_task->event,
 					 req_gpu_task->func_id);
 			} else {
-				gim_info("Multiple REQ_GPU_ACCESS requests arequeued up");
+				gim_info("Multiple REQ_GPU_ACCESS requests are queued up");
 				gim_info("req_gpu_task --> Event = %d;"
 					 "FunID = %d", req_gpu_task->event,
 					 req_gpu_task->func_id);
@@ -1535,7 +1706,10 @@ void signal_scheduler(void *pcontext)
 					 == SCHEDULER__PREDICT_PERF)
 					|| (!is_on_run_list(func)
 					&& adapt->sched_opt
-					 == SCHEDULER__ROUND_ROBIN)) {
+					 == SCHEDULER__ROUND_ROBIN_SOLID)
+					|| (!is_on_run_list(func)
+					&& adapt->sched_opt
+					 == SCHEDULER__ROUND_ROBIN_LIQUID)) {
 					req_gpu_task->waiting_to_execute = 0;
 					skip = 1;
 					break;

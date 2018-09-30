@@ -25,6 +25,7 @@
 #define _GPU_IOV_MODULE__TIMER_H
 
 #define MS_TO_NS(x)     (x * 1000000L)
+#define US_TO_NS(x)     (x * 1000L)
 
 int set_timeout_timer(struct hrtimer *timer);
 int set_timer(struct hrtimer *timer);
@@ -33,7 +34,7 @@ int start_timer(struct hrtimer *timer, int delay_in_ms);
 int restart_timer(struct hrtimer *timer);
 
 #ifdef CONFIG_GIM_HEARTBEAT_TIMER
-extern int in_triger_world_switch;
+extern int in_trigger_world_switch;
 extern int in_world_switch;
 
 int start_heartbeat_timer(int delay_in_sec);

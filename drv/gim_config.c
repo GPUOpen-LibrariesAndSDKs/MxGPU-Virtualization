@@ -25,7 +25,7 @@
 #include <linux/pci.h>
 #include <linux/mod_devicetable.h>
 #include <linux/fs.h>
-#include "gim_file.h"
+#include <linux/version.h>
 #include "gim_command.h"
 #include "gim_debug.h"
 
@@ -45,6 +45,7 @@ enum option_index {
 	CONFIG_OPTION__PF_FB_SIZE,
 	CONFIG_OPTION__VF_FB_SIZE,
 	CONFIG_OPTION__SCHED_INTERVAL,
+	CONFIG_OPTION__SCHED_INTERVAL_US,
 	CONFIG_OPTION__FB_CLEAR,
 	CONFIG_OPTION__MAX
 };
@@ -69,6 +70,9 @@ struct config_option config_options[] = {
 	{SCHED_INTERVAL__KEY, SCHED_INTERVAL__DEFAULT,
 	 SCHED_INTERVAL__START, SCHED_INTERVAL__MAX},
 
+	{SCHED_INTERVAL_US__KEY, SCHED_INTERVAL_US__DEFAULT,
+	 SCHED_INTERVAL_US__START, SCHED_INTERVAL_US__MAX},
+
 	{FB_CLEAR__KEY, FB_CLEAR__DEFAULT, FB_CLEAR__START, FB_CLEAR__MAX},
 };
 
@@ -83,7 +87,7 @@ MODULE_PARM_DESC(fb_option, "Frame Buffer Partition.0:static partition; 1: dynam
 
 static uint32_t sched_option = COMMAND_LINE_OPTION_DEFAULT;
 module_param(sched_option, uint, S_IRUGO);
-MODULE_PARM_DESC(sched_option, "GPU scheduler. 0: round robin; 1: predictable perf");
+MODULE_PARM_DESC(sched_option, "GPU scheduler. 0: round robin solid; 1: predictable perf; 2: round robin liquid");
 
 static unsigned int vf_num = COMMAND_LINE_OPTION_DEFAULT;
 module_param(vf_num, uint, S_IRUGO);
@@ -95,12 +99,18 @@ MODULE_PARM_DESC(pf_fb, "Frame Buffer Size in MegaBytes for PF");
 
 static unsigned int vf_fb = COMMAND_LINE_OPTION_DEFAULT;
 module_param(vf_fb, uint, S_IRUGO);
-MODULE_PARM_DESC(pf_fb, "Frame Buffer Size in MegaBytes for VF");
+MODULE_PARM_DESC(vf_fb, "Frame Buffer Size in MegaBytes for VF");
 
 
 static unsigned int sched_interval = COMMAND_LINE_OPTION_DEFAULT;
 module_param(sched_interval, uint, S_IRUGO);
 MODULE_PARM_DESC(sched_interval, "Scheduling time quanta in milliseconds. 0: default quanta(6ms)");
+
+static unsigned int sched_interval_us = COMMAND_LINE_OPTION_DEFAULT;
+module_param(sched_interval_us, uint, S_IRUGO);
+MODULE_PARM_DESC(sched_interval_us, "Scheduling time quanta in microseconds "
+		 "Delta scheduling time add on sched_interval "
+		 "0: default quanta(0us) range from 0-999");
 
 static unsigned int fb_clear = COMMAND_LINE_OPTION_DEFAULT;
 module_param(fb_clear, uint, S_IRUGO);
@@ -112,9 +122,7 @@ static int search_config_key(char *key)
 	int ret = -1;
 
 	for (index = 0 ; index < MAX_OPTION; ++index) {
-		if (strncasecmp(config_options[index].name,
-				key,
-				strlen(config_options[index].name)) == 0) {
+		if (!strcmp(config_options[index].name, key)) {
 			ret = index;
 			break;
 		}
@@ -170,6 +178,7 @@ static int parse_config_file(char *data, unsigned long long size)
 				empty = (strlen(token) == 0);
 		} while (empty);
 
+
 		/* expecting a key. */
 		if (token != NULL) {
 			index = search_config_key(token);
@@ -221,16 +230,29 @@ static int read_config_file(void)
 	unsigned long long size;
 	struct file *config;
 	char *content;
+	int rc;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+	loff_t loff_t = 0;
+#endif
 
-	config = file_open(GIM_CONFIG_PATH, O_CREAT|O_RDWR, 0);
-	if (config != NULL) {
-		size = file_size(config) + 1;
-		content = kzalloc(size, GFP_KERNEL);
-		ret = file_read(config, 0, content, size);
-		parse_config_file(content, size);
-		kfree(content);
-		file_close(config);
+	config = filp_open(GIM_CONFIG_PATH, O_RDONLY, 0);
+	if (IS_ERR(config)) {
+		rc = PTR_ERR(config);
+		gim_warn("can't open %s because of error: %d\n",
+			GIM_CONFIG_PATH, rc);
+		return -1;
 	}
+
+	size = i_size_read(file_inode(config)) + 1;
+	content = kzalloc(size, GFP_KERNEL);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
+	ret = kernel_read(config, 0, content, size);
+#else
+	ret = kernel_read(config, content, size, &loff_t);
+#endif
+	parse_config_file(content, size);
+	kfree(content);
+	filp_close(config, NULL);
 	return 0;
 }
 
@@ -238,15 +260,24 @@ static int write_config_file(char *content)
 {
 	int ret = 0;
 	struct file *config;
-
-	config = file_open(GIM_CONFIG_PATH, O_CREAT|O_RDWR, 0);
-	if (config != NULL) {
-		ret = file_truncate(config, 0);
-		ret = file_write(config, 0, content, strlen(content));
-
-		file_sync(config);
-		file_close(config);
+	int rc;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+	loff_t loff_t = 0;
+#endif
+	config = filp_open(GIM_CONFIG_PATH, O_CREAT|O_RDWR, 0);
+	if (IS_ERR(config)) {
+		rc = PTR_ERR(config);
+		gim_warn("can't open %s because of error: %d\n",
+			GIM_CONFIG_PATH, rc);
+		return -1;
 	}
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
+	ret = kernel_write(config, content, strlen(content), 0);
+#else
+	ret = kernel_write(config, content, strlen(content), &loff_t);
+#endif
+	vfs_fsync(config, 0);
+	filp_close(config, NULL);
 
 	return 0;
 }
@@ -299,6 +330,11 @@ int init_config(void)
 			    sched_interval) == 0)
 		set_config_option(CONFIG_OPTION__SCHED_INTERVAL,
 				  sched_interval);
+	if (validate_option(CONFIG_OPTION__SCHED_INTERVAL_US,
+			    sched_interval_us) == 0)
+		set_config_option(CONFIG_OPTION__SCHED_INTERVAL_US,
+				  sched_interval_us);
+
 	if (validate_option(CONFIG_OPTION__FB_CLEAR, fb_clear) == 0)
 		set_config_option(CONFIG_OPTION__FB_CLEAR, fb_clear);
 
@@ -338,6 +374,11 @@ uint32_t get_vf_fb_option(void)
 uint32_t get_sched_interval_option(void)
 {
 	return get_config_option(CONFIG_OPTION__SCHED_INTERVAL);
+}
+
+uint32_t get_sched_interval_us_option(void)
+{
+	return get_config_option(CONFIG_OPTION__SCHED_INTERVAL_US);
 }
 
 uint32_t get_fb_clear_option(void)

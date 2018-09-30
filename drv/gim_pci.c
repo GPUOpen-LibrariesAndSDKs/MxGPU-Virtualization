@@ -164,7 +164,8 @@ int sriov_is_ari_enabled(struct pci_dev *dev)
 	gim_info("PCI_SRIOV_CAP = 0x%08x\n", capabilities);
 
 	if (!(capabilities & PCI_SRIOV_CAP_ARI_PRESERVED)) {
-		gim_info("PCI_SRIOV_CAP_ARI_PRESERVED is not set --> we assumeARI not enabled\n");
+		gim_info("PCI_SRIOV_CAP_ARI_PRESERVED is not set.\n");
+		gim_info("--> Assume ARI is not enabled\n");
 		return 0;
 	}
 

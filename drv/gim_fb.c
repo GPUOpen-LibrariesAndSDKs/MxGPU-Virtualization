@@ -107,15 +107,43 @@ int init_fb_dynamic(struct adapter *adapt, kcl_type_u64 base,
 	return 0;
 }
 
+int get_fb_size_static(struct adapter *adapter, u32 *num_vf, u64 base,
+	u64 total_size, u64 min_size)
+{
+	u32 new_count;
+	u32 vf_fb_size;
+
+	if (get_vf_fb_option() == VF_FB__DEFAULT) {
+		vf_fb_size = rounddown(total_size / *num_vf, FB__SIZE_IN_16M);
+		if (vf_fb_size < min_size) {
+			// Not enough memory to support all vfs.
+			*num_vf = total_size / min_size;
+			vf_fb_size = rounddown(min_size, FB__SIZE_IN_16M);
+		}
+	} else {
+		vf_fb_size	= get_vf_fb_option();
+		gim_info("VF FB size specified as %dMB, min_size = %lld\n",
+			vf_fb_size, min_size);
+		if (vf_fb_size < min_size)
+			vf_fb_size = min_size;
+		new_count = total_size / vf_fb_size;
+		if (new_count < *num_vf)
+			*num_vf = new_count;
+		vf_fb_size = rounddown(vf_fb_size, FB__SIZE_IN_16M);
+	}
+
+	return vf_fb_size;
+}
+
 int init_fb_static(struct adapter *adapt, kcl_type_u32 num_vf,
 				kcl_type_u64 base, kcl_type_u64 total_size,
-					kcl_type_u64 mini_size)
+					kcl_type_u64 min_size)
 {
 	kcl_type_u32 i, j;
 	struct partition *partition;
 
-	gim_info("AMD GIM init_fb_static: num_vf = %d, base= %lld, total_size=%lld, mini_size=%lld\n",
-			 num_vf, base, total_size, mini_size);
+	gim_info("AMD GIM init_fb_static: num_vf = %d, base= %lld, total_size=%lld, min_size=%lld\n",
+			 num_vf, base, total_size, min_size);
 	if (num_vf > 0) {
 		kcl_type_u32 vf_fb_size;
 		kcl_type_u32 vf_avg_fb_size;
@@ -126,10 +154,10 @@ int init_fb_static(struct adapter *adapt, kcl_type_u32 num_vf,
 			vf_fb_size  = vf_avg_fb_size;
 		} else {
 			vf_fb_size  = get_vf_fb_option();
-			gim_info("VF FB size specified as %dMB, mini_size = %lld\n",
-					 vf_fb_size, mini_size);
-			if (vf_fb_size < mini_size)
-				vf_fb_size = mini_size;
+			gim_info("VF FB size specified as %dMB, min_size = %lld\n",
+					 vf_fb_size, min_size);
+			if (vf_fb_size < min_size)
+				vf_fb_size = min_size;
 
 			if (vf_fb_size > vf_avg_fb_size)
 				vf_fb_size = vf_avg_fb_size;
@@ -195,10 +223,9 @@ int init_frame_buffer_partition(struct adapter *adapt)
 	max_fb_size = rounddown(adapt->gpuiov.total_fb_available -
 		roundup(FB__RESERVED_CSA_IN_1M, FB__SIZE_IN_16M),
 						FB__SIZE_IN_16M);
-	gim_info("Total FB Available = %d MB, CSA = %d MB, Max remaining FBsize =%lld MB\n",
-		adapt->gpuiov.total_fb_available,
-		 FB__RESERVED_CSA_IN_1M, max_fb_size);
-	gim_info("max_fb_size = %lld\n", max_fb_size);
+	gim_info("Total FB Available = %d MB, CSA = %d MB\n",
+		adapt->gpuiov.total_fb_available, FB__RESERVED_CSA_IN_1M);
+	gim_info("Max Remaining FB Size = %lld\n", max_fb_size);
 	/* Validate the PF frame buffer size */
 	pf_fb_size = (kcl_type_u64)get_pf_fb_option();
 	if (pf_fb_size <= mini_pf_fb_size)
@@ -233,6 +260,10 @@ int init_frame_buffer_partition(struct adapter *adapt)
 	vf_fb_size = rounddown(max_fb_size - pf_fb_size, FB__SIZE_IN_16M);
 	gim_info("VF FB Size = %lldMB (%lld - %lld)\n", vf_fb_size, max_fb_size,
 			 pf_fb_size);
+
+	/* save it for monitoring use */
+	adapt->vf_fb_base = vf_fb_base;
+	adapt->vf_fb_size = vf_fb_size;
 
 	if (get_fb_partition_option() == FB_PARTITION__STATIC) {
 		init_fb_static(adapt, adapt->enabled_vfs, vf_fb_base,

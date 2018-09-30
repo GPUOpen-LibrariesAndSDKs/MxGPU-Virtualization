@@ -1336,7 +1336,7 @@ uint16_t *get_data_master_table_pointer(struct device_data *device_data)
 			    + device_data->bios_image);
 
 	master_table_off = (uint16_t *)&(((struct atom_master_data_table *)
-			    master_table_off)->list_of_data_tables);
+			    master_table_off)->tables_list);
 
 	return master_table_off;
 }

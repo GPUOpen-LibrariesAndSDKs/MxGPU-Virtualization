@@ -42,6 +42,19 @@ enum gpu_iov_command {
 	LOAD_RLCV_STATE         = 0x09
 };
 
+enum gpu_iov_command_status {
+	COMMAND_DONE = 0x0,
+	IDLING_GPU = 0x11,
+	SAVING_GPU_STATE = 0x12,
+	LOADING_GPU_STATE  = 0x13,
+	ENABLING_GPU  = 0x14,
+	INITING_GPU = 0x15,
+	SAVING_RLCV_STATE = 0x16,
+	LOADING_RLCV_STATE  = 0x17,
+	GFX_HANG = 0x0e,
+	SDMA_HANG = 0x0f
+};
+
 int pci_gpu_iov_init(struct pci_dev *dev, struct pci_gpu_iov *gpuiov);
 int set_gpuiov_context(struct pci_dev *dev, struct pci_gpu_iov *gpuiov,
 			kcl_type_u8 context_size, kcl_type_u8 context_loc,

@@ -1,0 +1,10 @@
+DEPENDENCY:
+ GNU Readline library. Before build, please make sure this library has been
+ installed in your build system. It can be downloaded from link:
+ https://tiswww.case.edu/php/chet/readline/rltop.html
+
+HOT TO BUILD AND RUN:
+ GRU build is very easy, just go to source code, then run “make”. A new binary
+ named “gru” will be in the folder.
+ To run GRU, just run “./gru” without any additional arguments. Note, GRU need
+ be run with root permission.

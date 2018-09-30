@@ -55,17 +55,17 @@ struct pci_gpu_iov {
 
 
 /* GPU Virtualization */
-#define  PCI_EXT_CAP_ID__GPUIOV 0x0b
+#define PCI_EXT_CAP_ID__GPUIOV 0x0b
 
 #define PCI_GPUIOV_CAP              0x02 /* 16bits */
-#define  PCI_GPUIOV_CAP__VER(x) ((x)&0xf)
-#define  PCI_GPUIOV_NEXT_CAP__OFFSET(x) ((x)>>4)
+#define PCI_GPUIOV_CAP__VER(x) ((x)&0xf)
+#define PCI_GPUIOV_NEXT_CAP__OFFSET(x) ((x)>>4)
 
 #define PCI_GPUIOV_VSEC             0x04 /* 32bits*/
-#define  PCI_GPUIOV_VSEC__ID__GPU_IOV 0x02
-#define  PCI_GPUIOV_VSEC__ID(x)  ((x) & 0xffff)
-#define  PCI_GPUIOV_VSEC__REV(x) (((x) >> 16) & 0x0f)
-#define  PCI_GPUIOV_VSEC__LENGTH(x) ((x)>>20)
+#define PCI_GPUIOV_VSEC__ID__GPU_IOV 0x02
+#define PCI_GPUIOV_VSEC__ID(x)  ((x) & 0xffff)
+#define PCI_GPUIOV_VSEC__REV(x) (((x) >> 16) & 0x0f)
+#define PCI_GPUIOV_VSEC__LENGTH(x) ((x)>>20)
 
 
 #define PCI_GPUIOV_CMD_CONTROL      0x0c /* 8bits */
@@ -81,17 +81,17 @@ struct pci_gpu_iov {
 #define PCI_GPUIOV_VM_INIT_STATUS     0x1c /* 32bits */
 
 #define PCI_GPUIOV_CNTXT            0x20 /* 32bits */
-#define  PCI_GPUIOV_CNTXT__SIZE(x) ((x) & 0x7f)
-#define  PCI_GPUIOV_CNTXT__LOC(x) (((x) >> 7) & 0x01)
-#define  PCI_GPUIOV_CNTXT__OFFSET(x) ((x) >> 10)
+#define PCI_GPUIOV_CNTXT__SIZE(x) ((x) & 0x7f)
+#define PCI_GPUIOV_CNTXT__LOC(x) (((x) >> 7) & 0x01)
+#define PCI_GPUIOV_CNTXT__OFFSET(x) ((x) >> 10)
 
 
 #define PCI_GPUIOV_CNTXT__LOC_IN_FB  0
 #define PCI_GPUIOV_CNTXT__LOC_IN_SYS 1
 
-#define  PCI_GPUIOV_CNTXT__SIZE__PUT(x) ((x) & 0x7f)
-#define  PCI_GPUIOV_CNTXT__LOC__PUT(x) (((x) & 0x01) << 7)
-#define  PCI_GPUIOV_CNTXT__OFFSET__PUT(x) (((x) & 0x3fffff) << 10)
+#define PCI_GPUIOV_CNTXT__SIZE__PUT(x) ((x) & 0x7f)
+#define PCI_GPUIOV_CNTXT__LOC__PUT(x) (((x) & 0x01) << 7)
+#define PCI_GPUIOV_CNTXT__OFFSET__PUT(x) (((x) & 0x3fffff) << 10)
 
 #define PCI_GPUIOV_TOTAL_FB_AVAILABLE 0x24 /* 16bits */
 #define PCI_GPUIOV_TOTAL_FB_CONSUMED  0x26 /* 16bits */

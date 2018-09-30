@@ -1,3 +1,4 @@
+#
 # Copyright (c) 2014-2017 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -18,15 +19,16 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE
 
-obj-m := gim.o
-gim-objs := gim_drv.o gim_interface.o gim_adapter.o gim_pci.o gim_unwrapper.o gim_gpuiov.o gim_config.o gim_timer.o gim_fb.o gim_debug.o gim_flr.o gim_atom.o gim_atombios.o gim_os_service.o gim_irqmgr.o gim_kcl_os.o gim_pci_config.o gim_kcl_pci.o gim_reset.o gim_dma.o gim_monitor.o gim_monitor_ioctl.o gim_monitor_tonga.o
+GIM_VERSION=1.1.3
 
-LINUXINCLUDE := $(LINUXINCLUDE) -I$(src)/asic_reg
+LINUXINCLUDE := $(LINUXINCLUDE) -I$(src)/drv/asic_reg
+KBUILD_CFLAGS := $(KBUILD_CFLAGS) -D DRV_VERSION=$(GIM_VERSION)
 
-#GIM configuration
-#ccflags-y += -DCONFIG_GIM_HEARTBEAT_TIMER
-#ccflags-y += -D DRV_VERSION=1.0
-#ccflags-y += -DCONFIG_MMIO_QEMU_SECURITY
+#KBUILD_CFLAGS += -DCONFIG_GIM_HEARTBEAT_TIMER=y
+#KBUILD_CFLAGS += -DCONFIG_MMIO_QEMU_SECURITY=y
+
+obj-m += gim.o
+gim-objs := drv/gim_drv.o drv/gim_interface.o drv/gim_adapter.o drv/gim_pci.o drv/gim_unwrapper.o drv/gim_gpuiov.o drv/gim_config.o drv/gim_timer.o drv/gim_fb.o drv/gim_debug.o drv/gim_flr.o drv/gim_atom.o drv/gim_atombios.o drv/gim_os_service.o drv/gim_irqmgr.o drv/gim_kcl_os.o drv/gim_pci_config.o drv/gim_kcl_pci.o drv/gim_reset.o drv/gim_dma.o drv/gim_monitor.o drv/gim_monitor_ioctl.o drv/gim_monitor_tonga.o
 
 PWD := $(shell pwd)
 
@@ -39,7 +41,5 @@ all:
 
 clean:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) clean
-
-install:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules_install
 endif
+

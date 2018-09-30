@@ -24,6 +24,7 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/mod_devicetable.h>
+#include <linux/version.h>
 #include "gim_adapter.h"
 #include "gim_unwrapper.h"
 #include "gim_pci.h"
@@ -34,20 +35,21 @@
 #include <linux/proc_fs.h>
 #include <asm/uaccess.h>
 #include "gim_pci_config.h"
+#include "gim_monitor_ioctl.h"
 
-#define MAJ 1
-#define MIN 0
-#define BUILD 0
-#define DRV_VERSION	\
-	__stringify(MAJ) "." __stringify(MIN) "." __stringify(BUILD) "-k"
+#ifndef DRV_VERSION
+#define DRV_VERSION 0.0
+#endif
 
+#define _STR(x) #x
+#define STR(x) _STR(x)
 
 char gim_driver_name[] = "gim";
-char gim_driver_version[] = DRV_VERSION;
+char gim_driver_version[] = STR(DRV_VERSION);
 static const char gim_driver_string[] =
 		"GPU IOV MODULE";
 static const char gim_copyright[] =
-		"Copyright (c) 2014-2017 AMD Corporation.";
+		"Copyright (c) 2014-2018 AMD Corporation.";
 
 
 /* TBD: Tonga Device ID */
@@ -63,20 +65,23 @@ static const struct pci_device_id gim_pci_tbl[] = {
 
 struct aer_item device_list[MAX_BRIDGES];
 
-static ssize_t gim_sriov(struct device_driver *drv, const char *buf,
+static ssize_t sriov_store(struct device_driver *drv, const char *buf,
 		size_t count)
 {
 	call_interface_functions(buf, count);
 	return count;
 }
 
-static ssize_t gim_sriov_show(struct device_driver *drv, char *buf)
+static ssize_t sriov_show(struct device_driver *drv, char *buf)
 {
 	return respond_interface_functions(buf);
 }
 
-
-static DRIVER_ATTR(sriov, (S_IWUSR|S_IRUSR), gim_sriov_show, gim_sriov);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
+static DRIVER_ATTR(sriov, (S_IWUSR|S_IRUSR), sriov_show, sriov_store);
+#else
+static DRIVER_ATTR_RW(sriov);
+#endif
 
 
 static int gim_probe(struct pci_dev *pdev,
@@ -167,6 +172,8 @@ static int gim_init(void)
 
 	gim_init_debug_interface();
 
+	amdgim_create_devices(&gim_driver.driver);
+
 #ifdef CONFIG_GIM_HEARTBEAT_TIMER
 	init_heartbeat_timer();
 	start_heartbeat_timer(10);  /* 10 second delay */
@@ -178,6 +185,9 @@ static int gim_init(void)
 static void gim_exit(void)
 {
 	gim_info("Exit AMD open source GIM!\n");
+
+	idle_all_adapters();
+	amdgim_destroy_devices();
 
 #ifdef CONFIG_GIM_HEARTBEAT_TIMER
 	delete_heartbeat_timer();
@@ -194,7 +204,7 @@ static void gim_exit(void)
 	module_init(gim_init)
 module_exit(gim_exit)
 
-MODULE_VERSION(DRV_VERSION);
+MODULE_VERSION(STR(DRV_VERSION));
 
 MODULE_AUTHOR("Advanced Micro Devices, Inc.");
 MODULE_DESCRIPTION("GPU IOV MODULE");

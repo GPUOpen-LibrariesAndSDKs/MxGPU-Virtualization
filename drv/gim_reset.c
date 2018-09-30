@@ -343,7 +343,7 @@ void gim_clear_all_errors(struct adapter *adapt)
 	int            pos_pcie_cap = 0;
 	int            pos_aer = -1;
 
-	/* Clear any pending statis in PCI_STATUS (offset 0x06) */
+	/* Clear any pending status in PCI_STATUS (offset 0x06) */
 	kcl_pci_read_config_word(adapt->pf.pci_dev, PCI_STATUS, &data_16);
 	data_16 &= 0xF900;  /* Isolate resettable error bits */
 	if (data_16) {
@@ -375,7 +375,7 @@ void gim_clear_all_errors(struct adapter *adapt)
 	kcl_pci_read_config_dword(adapt->pf.pci_dev,
 				pos_aer+PCI_ERR_UNCOR_STATUS, &data_32);
 	if (data_32) {
-		gim_info("PCIE unrecover error = 0x%x\n", data_32);
+		gim_info("PCIE unrecoverable error = 0x%x\n", data_32);
 		kcl_pci_write_config_dword(adapt->pf.pci_dev,
 					pos_aer+PCI_ERR_UNCOR_STATUS, data_32);
 	}
@@ -384,7 +384,7 @@ void gim_clear_all_errors(struct adapter *adapt)
 	kcl_pci_read_config_dword(adapt->pf.pci_dev,
 			pos_aer+PCI_ERR_CORR_STATUS, &data_32);
 	if (data_32) {
-		gim_info("PCIE unrecover error = 0x%x\n", data_32);
+		gim_info("PCIE unrecoverable error = 0x%x\n", data_32);
 		kcl_pci_write_config_dword(adapt->pf.pci_dev,
 					pos_aer+PCI_ERR_CORR_STATUS, data_32);
 	}
@@ -393,31 +393,14 @@ void gim_clear_all_errors(struct adapter *adapt)
 int validate_link_status(struct adapter *adapt)
 {
 	/* Search PCI_CAP_ID_EXP */
-	int pos = PCI_CAPABILITY_LIST;
+	int pos = 0;
 	unsigned int data = 0;
 	unsigned int data1 = 0;
 	unsigned int timeout = 0;
-	unsigned char data_8 = 0;
 	unsigned short vender_id = 0;
 	unsigned short pci_command = 0;
 
-	do {
-		kcl_pci_read_config_byte(adapt->p2p_bridge_dev, pos, &data_8);
-		if (data_8 == 0)
-			break;
-
-		pos = data_8;
-
-		gim_info("pos %x\n", pos);
-
-		/* Go to next cap */
-		kcl_pci_read_config_byte(adapt->p2p_bridge_dev, pos, &data_8);
-		if (data_8 == PCI_CAP_ID_EXP)
-			break;
-		/* Set next cap's position */
-		pos = pos + 1;
-
-	} while (1);
+	pos = pci_find_capability(adapt->p2p_bridge_dev, PCI_CAP_ID_EXP);
 
 	/* PCI_CAP_ID_EXP found? */
 	if (pos) {
@@ -466,17 +449,17 @@ int validate_link_status(struct adapter *adapt)
 				}
 
 				if (timeout == 0) {
-					gim_info("Failed to get DDL Link active,link status %x\n",
+					gim_info("Failed to get PCIe Link active,link status %x\n",
 						data);
 					return -1;
 				}
 
 				timeout = 0;
-				gim_info("Validate link status done,linkSpeed 3, DLL link activecapable\n");
+				gim_info("Validate link status done, linkSpeed 3, PCIe link active capable\n");
 
 			} else {
 				timeout = 100 * 1000; /* Delay 100ms */
-				gim_info("DLL link active capable isn'tsupported, wait 100ms\n");
+				gim_info("PCIe link active capability not found, wait 100ms\n");
 			}
 		} else {
 			timeout = PCIE_TRAINING_TIMEOUT_LIMIT;
@@ -508,7 +491,7 @@ int validate_link_status(struct adapter *adapt)
 		}
 
 		if (timeout)
-			kcl_thread_sleep(timeout/1000);
+			kcl_thread_sleep(timeout);
 
 		/* Confirm GPU is up */
 		timeout = PCIE_TRAINING_TIMEOUT_LIMIT;
@@ -581,7 +564,7 @@ static void gim_pci_reset_bus(struct pci_dev *dev)
 static int trigger_hot_reset(struct adapter *adapt)
 {
 	if (adapt->p2p_bridge_dev == NULL) {
-		gim_info("Can not trigger hot reset: PCI bridge is notavailable\n");
+		gim_info("Cannot trigger hot reset: PCI bridge is unavailable\n");
 		return -1;
 	}
 
@@ -602,7 +585,7 @@ static void clear_firmware_state(struct adapter *adapt)
 	gim_info("SOFT_REGISTERS_TABLE_28 %x\n", val);
 	pf_write_register(adapt, mmSMC_IND_DATA_0, 0);
 
-	/* Clean versin number */
+	/* Clean version number */
 	for (idx = 0 ; idx < UCODE_COUNT ; ++idx) {
 		pf_write_register(adapt,
 					mmSMC_IND_INDEX_0,
@@ -635,7 +618,7 @@ static int gim_enable_sriov(struct adapter *adapt)
 {
 	int result = 0;
 	unsigned short sriov_control = 0;
-	unsigned int timeout = 100;
+	unsigned int timeout = 100 * 1000;
 
 	kcl_pci_read_config_word(adapt->pf.pci_dev,
 				adapt->gpuiov.pos + PCI_SRIOV_CTRL,

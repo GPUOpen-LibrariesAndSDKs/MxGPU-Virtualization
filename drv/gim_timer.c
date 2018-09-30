@@ -54,12 +54,11 @@ enum hrtimer_restart my_timer_callback(struct hrtimer *timer)
 
 enum hrtimer_restart timeout_timer_callback(struct hrtimer *timer)
 {
-	int ret;
 	struct adapter *adapt = container_of(timer, struct adapter,
 						timeout_timer);
 
 	if(handle_fullaccess_timeout(adapt))
-		ret = start_timer(&adapt->timeout_timer,
+		start_timer(&adapt->timeout_timer,
 					TIMEOUT_CHECK_INTERVAL);
 
 	return HRTIMER_NORESTART;
@@ -86,15 +85,11 @@ void delete_timer(struct hrtimer *timer)
 	ret = hrtimer_cancel(timer);
 }
 
-int start_timer(struct hrtimer *timer, int delay_in_ms)
+int start_timer(struct hrtimer *timer, int delay_in_us)
 {
-	ktime_t ktime = ktime_set(0, MS_TO_NS(delay_in_ms));
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 2, 0)
-	return hrtimer_start(timer, ktime, HRTIMER_MODE_REL);
-#else
+	ktime_t ktime = ktime_set(0, US_TO_NS(delay_in_us));
 	hrtimer_start(timer, ktime, HRTIMER_MODE_REL);
 	return 0;
-#endif
 }
 
 int restart_timer(struct hrtimer *timer)

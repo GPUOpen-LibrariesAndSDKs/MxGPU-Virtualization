@@ -24,6 +24,7 @@
 #define _GPU_IOV_MODULE__GIM_ATOMBIOS_H
 
 #include "gim_adapter.h"
+#include "gim_atombios_com.h"
 
 #define ATOM_DATATABLE                  0
 #define ATOM_COMMANDTABLE               1
@@ -49,6 +50,8 @@
 #define UPDATE_FIRMWARE_TOC	0x04
 #define UPDATE_FIRMWARE_SMC_PATCH	0x8
 
+#define PPSMC_MSG_THERMAL_CNTL_ENABLE       (0x10a)
+
 int atom_init_parser(struct adapter *adapt);
 int atom_post_vbios(struct adapter *adapt, int post_type);
 int atom_chk_asic_status(struct adapter *adapt);
@@ -65,11 +68,15 @@ struct cail_adapter_config_info {
 	uint32_t rom_length;		/* Size of ATI ROM in bytes */
 	uint32_t rom_header_offset;	/* Offset to ROM header */
 
-	void *volatile rom_base_addr;	/* Mapped logical base addr of ROM */
-	void *volatile io_base_addr;    /* IO access address */
+	void *rom_base_addr;	/* Mapped logical base addr of ROM */
+	void *io_base_addr;    /* IO access address */
 
 };
 
+int atom_dpm_state_cntl(struct adapter *adapt,
+			struct pwr_mgt_param *param);
+
+void enable_thermal_control(struct adapter *adapt);
 
 #define GIM_VBIOS_SIGNATURE             "761295520"
 #define GIM_VBIOS_SIGNATURE_OFFSET      0x30

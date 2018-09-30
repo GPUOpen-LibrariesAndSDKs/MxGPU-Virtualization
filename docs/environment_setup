@@ -30,10 +30,9 @@ Platform
 
 Host Software
 -------------
-1.Ubuntu16.04 server
+1.Ubuntu 16.04 server
  1.1 OS installation and configuration
-  1.1.1 just install OS step by step by the installation tips,
-  there is no special configure, but remeber to select virtualization choice when install.
+  1.1.1 Select virtualization when installing.
 
  1.2 Hypervisor installation and configuration
   1.2.1 update the software and kernel
@@ -49,18 +48,18 @@ Host Software
   f. apt-get install qt3-dev-tools libqt3-mt-dev
   g. menuconfig (by default)
   1.2.3 patch the kernel for SRIOV support and build kernel
-  a. patch the following patches
-  0001-Added-legacy-endpoint-type-to-sriov-for-ubuntu-4.4.0-75-generic.diff
-  0002-add-pci-io-access-cap-for-ubuntu-4.4.0-75-generic.diff
+  a. Apply the following patches
+  patch < ./patch/0001-Added-legacy-endpoint-type-to-sriov-for-ubuntu-4.4.0-75-generic.diff
+  patch < ./patch/0002-add-pci-io-access-cap-for-ubuntu-4.4.0-75-generic.diff
   b. make-kpkg -j N --initrd --append-to-version=my-very-own-kernel kernel-image kernel-headers to buile kernel
   where N is how many jobs to run in parallel (usually the number of CPUs you have), and my-very-own-kernel is
   a custom string to identify the build
-  1.2.4 install kernel
+  1.2.4 Install kernel
   a. dpkg -i *.deb to install kernel-image and header which are ready after build compelete.
-  1.2.5 configure to blacklist amdgpu driver in host
+  1.2.5 Blacklist amdgpu driver on the host system
   a. add "blacklist amdgpu" in /etc/modprobe.d/blacklist.conf
   b. update-initramfs -u
-  1.2.6 configure to enable iommu
+  1.2.6 Enable IOMMU
   a. edit /etc/default/grub
   change GRUB_CMDLINE_LINUX_DEFAULT="quiet splash" to GRUB_CMDLINE_LINUX_DEFAULT="quiet splash intel_iommu=on" if Intel CPU
   change GRUB_CMDLINE_LINUX_DEFAULT="quiet splash" to GRUB_CMDLINE_LINUX_DEFAULT="quiet splash amd_iommu=on" if AMD CPU

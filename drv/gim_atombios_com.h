@@ -23,19 +23,34 @@
 #ifndef _GPU_IOV_MODULE__ATOMBIOS_H
 #define _GPU_IOV_MODULE__ATOMBIOS_H
 
-#pragma pack(push, 1)            /* BIOS data must use byte aligment */
+#pragma pack(push, 1)     /* BIOS data must use byte aligment */
 
 /* Define offset to location of ROM header. */
-#define OFFSET_TO_ROM_IMAGESIZE                        0x00000002L
+#define OFFSET_TO_ROM_IMAGESIZE                     0x00000002L
 #define OFFSET_TO_ATOM_ROM_IMAGESIZE                0X00000002L
 #define OFFSET_TO_POINTER_TO_ATOM_ROM_HEADER        0x00000048L
+
+/* ENABLE_ASIC_STATIC_PWR_MGT_PARAMETERS_V2_1 */
+struct pwr_mgt_param {
+	unsigned long smc_msg_id;
+	unsigned long smc_msg_arg;
+};
+
+enum atombios_image_offset {
+	OFFSET_TO_ATOM_ROM_HEADER_POINTER          = 0x00000048,
+	OFFSET_TO_ATOM_ROM_IMAGE_SIZE              = 0x00000002,
+	OFFSET_TO_ATOMBIOS_ASIC_BUS_MEM_TYPE       = 0x94,
+	/*including the terminator 0x0!*/
+	MAXSIZE_OF_ATOMBIOS_ASIC_BUS_MEM_TYPE      = 20,
+	OFFSET_TO_GET_ATOMBIOS_NUMBER_OF_STRINGS   = 0x2f,
+	OFFSET_TO_GET_ATOMBIOS_STRING_START        = 0x6e,
+};
 
 /*
  *Common header for all tables (Data table, Command table).
  *Every table pointed  struct atom_master_data_table has this common header.
  *And the pointer actually points to this header.
  */
-
 struct atom_common_table_header {
 	uint16_t stru_size;
 	/* Change it when the Parser is not backward compatible */
@@ -267,7 +282,7 @@ struct atom_common_rom_command_table_header {
 
 /* Structures used by adjust_mem_controllerTable*/
 struct compute_mem_engine_pll_parm {
-	/* When returen, it's re-cal clk based on Fb_div Post_Div and ref_div*/
+	/* When return, it's re-cal clk based on Fb_div Post_Div and ref_div*/
 	uint32_t clock;
 	unsigned char action;	/* 0:reserved 1:Memory 2:Engine */
 	unsigned char reserved;	/* may expand to return larger Fbdiv later */
@@ -342,12 +357,12 @@ struct atom_master_list_of_data_tables {
 	/* Offest for utility to get parser info,Don't change this pos! */
 	uint16_t utility_pipe_line;
 	/*
-	 * Only used by MM Lib,latest version 1.1, not configuable from Bios,
+	 * Only used by MM Lib,latest version 1.1, not configurable from BIOS,
 	 * ineed to include the table to build Bios
 	 */
 	uint16_t multimedia_cap_info;
 	/*
-	 * Only used by MM Lib,latest version 2.1, not configuable from Bios,
+	 * Only used by MM Lib,latest version 2.1, not configurable from BIOS,
 	 * need to include the table to build Bios
 	 */
 	uint16_t multimedia_config_info;
@@ -430,7 +445,7 @@ struct atom_master_list_of_data_tables {
 
 struct atom_master_data_table {
 	struct atom_common_table_header header;
-	struct atom_master_list_of_data_tables list_of_data_tables;
+	struct atom_master_list_of_data_tables tables_list;
 };
 
 /* Structures used in firmware_infoTable */

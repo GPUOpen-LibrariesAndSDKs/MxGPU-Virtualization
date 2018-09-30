@@ -33,6 +33,7 @@ unsigned int get_pf_fb_option(void);
 unsigned int get_vf_fb_option(void);
 unsigned int set_option(int index, int value);
 unsigned int get_sched_interval_option(void);
+unsigned int get_sched_interval_us_option(void);
 unsigned int get_fb_clear_option(void);
 
 #endif

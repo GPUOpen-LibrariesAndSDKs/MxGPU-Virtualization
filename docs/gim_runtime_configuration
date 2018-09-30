@@ -22,8 +22,8 @@
 
 GIM Runtime Configuration
 
-The GIM configuration file /etc/gim_config can be created after first time load
-gim.ko. It can configure runtime GIM behaviors.
+The GIM configuration file /etc/gim_config can be created after loading gim.ko
+for the first time. It can be used to modify options for GIM.
 
 There are 7 options: vf_num, pf_fb, vf_fb, fb_option, sched_interval,
 sched_option, fb_clear.
@@ -136,7 +136,7 @@ sched_option, fb_clear.
 
  sched_option = 1
  All VFs will share HW resoruce equally by almost same time slice in turns. Even
- the VF is stop, the VF still can occupy the HW resource.
+ the VF is stop, the VF still can occupy its HW resource.
 
 7. fb_clear
  Clear the VRAM for VF

@@ -107,6 +107,7 @@ uint32_t trgger_single_switch(uint32_t pf_bdf);
 uint32_t do_world_switch(uint32_t pf_bdf);
 void map_mmr(uint32_t vf_bdf, kcl_type_u64 phys_addr, kcl_type_u64 length);
 struct pci_dev *bdf_to_dev(uint32_t bdf);
+uint32_t get_pdev_bdf(struct pci_dev *pdev);
 struct flr_state *get_flr_state_ptr(uint32_t bdf);
 int is_pf(int bdf);
 struct adapter *bdf_to_adapter(uint32_t bdf);

@@ -175,7 +175,7 @@ static ssize_t dev_write(struct file *fp, const char *buf,
 
 /* Assume NULL terminated strings */
 /* Assume input is always in hex */
-char *getInt(int *ret, char *in)
+char *get_int(int *ret, char *in)
 {
 	char num_set[] = "1234567890ABCDEFabcdef";
 
@@ -202,42 +202,42 @@ char *getInt(int *ret, char *in)
 	return in;
 }
 
-char *getBDF(int *BDF, char *in)
+char *cmd_get_bdf(int *bdf, char *in)
 {
 	char *ptr;
-	int B, D, F;
+	int b, d, f;
 
 	ptr = in;
-	ptr = getInt(&B, ptr);
+	ptr = get_int(&b, ptr);
 	if (ptr == NULL)
 		return NULL;
 
-	ptr = getInt(&D, ptr);
+	ptr = get_int(&d, ptr);
 	if (ptr == NULL)
 		return NULL;
 
-	ptr = getInt(&F, ptr);
+	ptr = get_int(&f, ptr);
 	if (ptr == NULL)
 		return NULL;
 
-	*BDF = (B << 8) | (D << 3) | F;
+	*bdf = (b << 8) | (d << 3) | f;
 	return ptr;
 }
 
 static int cmd_alloc(char *parms)
 {
 	int fb_size = 0;
-	int vfBDF = 0;
+	int vf_bdf = 0;
 	char *ptr = parms;
 
-	ptr = getBDF(&vfBDF, ptr);
-	ptr = getInt(&fb_size, ptr);
+	ptr = cmd_get_bdf(&vf_bdf, ptr);
+	ptr = get_int(&fb_size, ptr);
 
-	gim_info("alloc a new vf, vfBDF = 0x%04x, fb_size = %d\n",
-		 vfBDF, fb_size);
+	gim_info("alloc a new vf, vf_bdf = 0x%04x, fb_size = %d\n",
+		 vf_bdf, fb_size);
 
 	/* invalid domid and pid for testing */
-	alloc_vf_from_bdf(vfBDF, -1, -1, fb_size, -1);
+	alloc_vf_from_bdf(vf_bdf, -1, -1, fb_size, -1);
 	return 0;
 }
 
@@ -246,7 +246,7 @@ static int cmd_free(char *parms)
 	int vfBDF = 0;
 	char *ptr = parms;
 
-	ptr = getBDF(&vfBDF, ptr);
+	ptr = cmd_get_bdf(&vfBDF, ptr);
 	gim_info("free vf 0x%04x\n", vfBDF);
 
 
@@ -260,8 +260,8 @@ static int cmd_stop(char *parms)
 	int BDF = 0;
 	char *ptr = parms;
 
-	ptr = getBDF(&BDF, ptr);
-	gim_info("stop gpu world switch schedler\n");
+	ptr = cmd_get_bdf(&BDF, ptr);
+	gim_info("stop gpu world switch scheduler\n");
 
 	pause_sched(BDF);
 
@@ -273,7 +273,7 @@ static int cmd_start(char *parms)
 {
 	int BDF = 0;
 
-	gim_info("start gpu world switch schedler\n");
+	gim_info("start gpu world switch scheduler\n");
 
 	start_scheduler(BDF);
 	return 0;
@@ -286,7 +286,7 @@ static int cmd_enable_preemption(char *parms)
 	int enable = 0;
 	char *ptr = parms;
 
-	ptr = getInt(&enable, ptr);
+	ptr = get_int(&enable, ptr);
 	enable_preemption(BDF, enable);
 	return 0;
 }
@@ -298,8 +298,8 @@ static int cmd_signal(char *parms)
 	char *ptr = parms;
 
 
-	ptr = getInt(&vm_id, ptr);
-	ptr = getInt(&active, ptr);
+	ptr = get_int(&vm_id, ptr);
+	ptr = get_int(&active, ptr);
 	gim_info("send %s signal to vm %x\n",
 		 active ? "active":"inactive",
 		 vm_id);
@@ -326,7 +326,7 @@ static int cmd_self_switch(char *parms)
 	char *ptr = parms;
 
 
-	ptr = getInt(&switch_to_itself, ptr);
+	ptr = get_int(&switch_to_itself, ptr);
 
 	gim_info("change the world switch method to :%s\n",
 		  switch_to_itself ?
@@ -344,7 +344,7 @@ static int cmd_log_level(char *parms)
 	char *ptr = parms;
 
 
-	ptr = getInt(&log_level, ptr);
+	ptr = get_int(&log_level, ptr);
 
 	gim_set_log_level(log_level);
 	return 0;
@@ -356,7 +356,7 @@ static int cmd_notify_method(char *parms)
 	int method = 0;
 	char *ptr = parms;
 
-	ptr = getInt(&method, ptr);
+	ptr = get_int(&method, ptr);
 	if (method == 2) {
 		g_notify_method = NOTIFY_METHOD_MSI;
 		gim_info("Reset Notification Method set to \"MSI\"\n");
@@ -376,7 +376,7 @@ static int cmd_dump_reg(char *parms)
 	struct function *pfun = get_vf(adapt, vf_id);
 
 
-	ptr = getInt(&vf_id, ptr);
+	ptr = get_int(&vf_id, ptr);
 	gim_info("cmd_dump_reg for vf id %x\n", vf_id);
 
 	pfun = get_vf(adapt, vf_id);

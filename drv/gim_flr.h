@@ -42,5 +42,6 @@ int gim_save_cpc_state(struct adapter *adapt, unsigned int *cp_cpc_ic);
 int gim_restore_cpc_state(struct adapter *adapt, unsigned int *cp_cpc_ic);
 int gim_save_vddgfx_state(struct adapter *adapt, struct function *vf);
 int gim_vf_flr(struct adapter *adapt, struct function *vf);
+int gim_function_level_reset(struct adapter *adapt, struct function *vf);
 
 #endif

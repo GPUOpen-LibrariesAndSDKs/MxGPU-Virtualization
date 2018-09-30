@@ -57,7 +57,7 @@ void *atom_get_tab_pointer(struct adapter *adapt,
 				   + atom_rom_hdr->master_data_table_offset);
 
 			us_table_pointer =
-				(uint16_t *)&(data_table->list_of_data_tables);
+				(uint16_t *)&(data_table->tables_list);
 		} else {
 			/* asking for command table */
 			cmd_table = (struct atom_master_command_table *)
@@ -273,9 +273,7 @@ int atom_post_vbios(struct adapter *adapt, int post_type)
 }
 
 int atom_read_rom_img_off(struct cail_adapter_config_info *adapter_info,
-			    void *dest,
-			    uint32_t rom_off,
-			    uint32_t length)
+			void *dest, uint32_t rom_off, uint32_t length)
 {
 	uint32_t rom_size = adapter_info->rom_length;
 	int ret = 0;
@@ -549,6 +547,7 @@ int patch_firmware(struct adapter *adapt)
 	unsigned int	hdp_nonsurface_base;
 	unsigned int	total_fb_size;
 	unsigned int	firmware_map;
+	unsigned int	reg_val;
 	uint16_t	tbl_index;
 	void		*cmd_table;
 	struct atom_common_table_header       *patch_table_header;
@@ -574,6 +573,14 @@ int patch_firmware(struct adapter *adapt)
 	 * table will be patched
 	 */
 	firmware_map = firmware_requires_update(adapt);
+
+	/* disable HDP write combine
+	 * HDP write combine can't work well with host side write combine.
+	 */
+	reg_val = pf_read_register(adapt, mmHDP_HOST_PATH_CNTL);
+	/* disable WRITE_COMBINE_EN and WRITE_COMBINE_64B_EN */
+	reg_val &= ~(3 << 21);
+	pf_write_register(adapt, mmHDP_HOST_PATH_CNTL, reg_val);
 
 	if (firmware_map) {
 		gim_info("Update smc_init table\n");
@@ -644,3 +651,51 @@ int patch_firmware(struct adapter *adapt)
 
 	return 0;
 }
+
+int atom_dpm_state_cntl(struct adapter *adapt,
+			struct pwr_mgt_param *param)
+{
+	struct cail_parser_table_context  context;
+	struct atom_common_table_header *table_hdr;
+	int ret = 0;
+	uint16_t tbl_index;
+
+	tbl_index = get_index_into_master_table(command,
+						enable_asic_static_pwr_mgt);
+
+	table_hdr = atom_get_tab_pointer(adapt,
+					ATOM_COMMANDTABLE, tbl_index, 0);
+
+	if (table_hdr == NULL) {
+		gim_info("Table header not found");
+		return -1;
+	}
+
+	if ((table_hdr->table_format_revision >= 2) &&
+			(table_hdr->table_content_revision < 2)) {
+		context.para_ptr = (void *)param;
+		context.table_index = tbl_index,
+			context.size = sizeof(struct cail_parser_table_context);
+
+		ret = atom_exec_bios_table(adapt, &context);
+	} else {
+		gim_info("Table revision not match");
+		return -1;
+	}
+
+	return ret;
+}
+
+void enable_thermal_control(struct adapter *adapt)
+{
+	struct pwr_mgt_param  pwr_paras = {
+		PPSMC_MSG_THERMAL_CNTL_ENABLE,
+		0
+	};
+
+	if (atom_dpm_state_cntl(adapt, &pwr_paras))
+		gim_info("Thermal Control:Execute table failed");
+	else
+		gim_info("Thermal Control Enable");
+}
+

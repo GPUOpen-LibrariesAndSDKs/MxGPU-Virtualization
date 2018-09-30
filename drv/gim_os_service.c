@@ -104,11 +104,11 @@ void  delay_in_micro_seconds(uint32_t micro_seconds)
  * @reg: register offset
  * return	register val: success
  */
-uint32_t read_reg32(volatile uint32_t *mmr, uint32_t reg)
+uint32_t read_reg32(uint32_t *mmr, uint32_t reg)
 {
 	uint32_t val;
 
-	val = *((volatile uint32_t *)((unsigned char *)mmr + (reg << 2)));
+	val = ioread32((unsigned char *)mmr + (reg << 2));
 	return val;
 }
 
@@ -118,12 +118,13 @@ uint32_t read_reg32(volatile uint32_t *mmr, uint32_t reg)
  * @reg: register offset
  * return	register val: success
  */
-uint32_t read_reg32_idx(volatile uint32_t *mmr, uint32_t reg)
+uint32_t read_reg32_idx(uint32_t *mmr, uint32_t reg)
 {
 
 	unsigned int val;
-	*((volatile uint32_t *)((unsigned char *)mmr + 0)) = (reg << 2);
-	val = *((volatile uint32_t *)((unsigned char *)mmr + 4));
+
+	iowrite32(reg << 2, mmr);
+	val = ioread32((unsigned char *)mmr + 4);
 	return val;
 }
 
@@ -134,10 +135,9 @@ uint32_t read_reg32_idx(volatile uint32_t *mmr, uint32_t reg)
  * @reg: register offset
  * @val: value to be write to register
  */
-void write_reg32(volatile uint32_t *mmr, uint32_t reg, uint32_t val)
+void write_reg32(uint32_t *mmr, uint32_t reg, uint32_t val)
 {
-	*((volatile uint32_t *)((unsigned char *)mmr + (reg << 2))) = val;
-
+	iowrite32(val, (unsigned char *)mmr + (reg << 2));
 }
 
 /*
@@ -147,9 +147,9 @@ void write_reg32(volatile uint32_t *mmr, uint32_t reg, uint32_t val)
  * @val: value to be write to register
  */
 
-void write_reg32_idx(volatile uint32_t *mmr, uint32_t reg, uint32_t val)
+void write_reg32_idx(uint32_t *mmr, uint32_t reg, uint32_t val)
 {
-	*((volatile uint32_t *)((unsigned char *)mmr + 0)) = (reg << 2);
-	*((volatile uint32_t *)((unsigned char *)mmr + 4)) = val;
+	iowrite32(reg << 2, mmr);
+	iowrite32(val, (unsigned char *)mmr + 4);
 }
 

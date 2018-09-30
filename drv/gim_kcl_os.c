@@ -127,9 +127,13 @@ void kcl_schedule_work(struct work_struct *work)
 	schedule_work(work);
 }
 
-signed long kcl_thread_sleep(int msecs)
+signed long kcl_thread_sleep(int usecs)
 {
-	gim_info("wait %d ms\n", msecs);
-	mdelay(msecs);
+	uint32_t ms = usecs / 1000;
+	uint32_t us = usecs % 1000;
+
+	gim_info("wait %d.%03dms\n", ms, us);
+	mdelay(ms);
+	udelay(us);
 	return 0;
 }

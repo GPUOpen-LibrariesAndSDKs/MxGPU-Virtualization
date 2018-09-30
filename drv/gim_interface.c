@@ -150,6 +150,10 @@ uint32_t get_pf_bdf(uint32_t bdf)
 	return 0;
 }
 
+uint32_t get_pdev_bdf(struct pci_dev *pdev)
+{
+	return ((pdev->bus->number << 8) | pdev->devfn);
+}
 
 struct pci_dev *bdf_to_dev(uint32_t bdf)
 {
@@ -422,7 +426,7 @@ uint32_t pause_sched(uint32_t pf_bdf)
 		return false;
 
 	delete_timer(&adapt->sched_timer);
-	adapt->schedler_running = false;
+	adapt->scheduler_running = false;
 	return true;
 }
 
@@ -434,7 +438,7 @@ uint32_t resume_sched(uint32_t pf_bdf)
 		return false;
 
 	restart_timer(&adapt->sched_timer);
-	adapt->schedler_running = true;
+	adapt->scheduler_running = true;
 	return true;
 }
 
@@ -467,7 +471,7 @@ uint32_t start_scheduler(uint32_t pf_bdf)
 
 	start_timer(&adapt->sched_timer, new_quota);
 
-	adapt->schedler_running = true;
+	adapt->scheduler_running = true;
 	return true;
 }
 
@@ -479,17 +483,17 @@ void enable_preemption(uint32_t pf_bdf, int enable)
 		return;
 
 
-	if (!adapt->schedler_running) {
+	if (!adapt->scheduler_running) {
 		adapt->enable_preeption = enable;
 		gim_info("%s mid-buffer preemption in GIM\n",
-				enable ? "eanble":"disable");
+				enable ? "enable":"disable");
 
 		return;
 	}
 
 	gim_err("%s mid-buffer preemption in GIM failed;"
 		"please stop gpu scheduler first\n",
-		enable ? "eanble":"disable");
+		enable ? "enable":"disable");
 
 }
 
@@ -507,15 +511,15 @@ void switch_to_self(uint32_t pf_bdf, int enable)
 	if (adapt == NULL)
 		return;
 
-	 if (!adapt->schedler_running) {
+	 if (!adapt->scheduler_running) {
 		adapt->switch_to_itself = enable;
 		gim_info("%s world switch to the same function\n",
-				enable ? "eanble":"disable");
+				enable ? "enable":"disable");
 		return;
 	 }
 
 	gim_err("%s world switch to the same function failed, please stop gpu scheduler first\n",
-		enable ? "eanble":"disable");
+		enable ? "enable":"disable");
 
 }
 
@@ -535,10 +539,10 @@ uint32_t trgger_single_switch(uint32_t pf_bdf)
 	if (adapt == NULL)
 		return false;
 
-	if (adapt->schedler_running)
-		gim_info("world switch schedler is running now, please stop the schedler first\n");
+	if (adapt->scheduler_running)
+		gim_info("world switch scheduler is running now, please stop the scheduler first\n");
 	else
-		triger_world_switch(adapt, true);
+		trigger_world_switch(adapt, true);
 
 	return true;
 }

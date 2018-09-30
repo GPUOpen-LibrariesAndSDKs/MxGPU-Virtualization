@@ -45,6 +45,28 @@ void __amd_spin_lock(spinlock_t *lock, const char *function, int line);
 #define amd_spin_lock(x) spin_lock(x)
 #endif
 
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+/*
+ *  * 0x5320/40 - MAILBOX registers
+ *  * 0x540C    - BIF_IOV_FUNC_IDENTIFIER
+ *  * 0x5480    - HDP_MEM_COHERENCY_FLUSH_CTRL
+ *  * Syntax requires /4 for a single register specifying a range of 4 bytes
+ *    offset
+ **/
+/* access range indicates accessible mmio range when mmio is trapped*/
+#define ACCESS_RANGE  "0x14c8/0x28,0x1503/0x4,0x1520/0x4,0x150a/0x4"
+/* unaccess range indicates unaccessible mmio range when mmio is untrapped*/
+#define UNACCESS_RANGE  \
+	"0x1480/0x28,0x1610/0x4,0x14a1/0x30,0x14b8/0x4,0x14e5/0x4,0xf800/0x1000"
+
+enum GIM_MMIO_STATUS {
+	GIM_MMIO_BLOCK = 0,
+	GIM_MMIO_UNBLOCK,
+};
+
+#define WAIT_COMPLETE_TIMEOUT 30 /* ms */
+#endif
+
 /* ARI mode*/
 #define PF_BUS        1
 #define PF_BUS_PLUS_1 2
@@ -77,6 +99,55 @@ union physical_address {
 
 
 #define MAX_MSG_LEN  64
+struct op_time_log {
+	struct timeval init_start;
+	struct timeval init_end;
+	struct timeval finish_start;
+	struct timeval finish_end;
+	int reset_count;
+	struct timeval reset_time;
+	/* we need accurate time here*/
+	struct timespec active_last_tick;
+	struct timespec active_time;
+};
+
+enum amdgim_option_mode {
+	AMDGIM_OPTION_MODE_ZZZ,  /* zero zero zero */
+	AMDGIM_OPTION_MODE_OSG,  /* offset size gfx */
+	AMDGIM_OPTION_LEN,
+};
+
+struct amdgim_user_option {
+	bool valid;
+	enum amdgim_option_mode mode;
+	unsigned int fb_offset;
+	unsigned int fb_size;
+	unsigned int gfx_time_divider;
+	unsigned int vce_time_level;
+	unsigned int uvd_time_level;
+	unsigned int gfx_time_quota; /* add this to save time in scheduling */
+};
+
+struct vf_load_status {
+	uint64_t cp_wptr_poll_pf_offset;
+	uint64_t sdma0_wptr_poll_pf_offset;
+	uint64_t sdma1_wptr_poll_pf_offset;
+	uint64_t cpc_wptr_poll_pf_offset[48];
+	uint64_t cpc_rptr_report_pf_offset[48];
+	uint32_t last_cpc_wptr_completed[48];
+	uint32_t cpc_wptr_poll_count;
+	uint32_t cpc_rptr_poll_count;
+	uint32_t last_cp_wptr_completed;
+	uint32_t last_cp_rptr_completed;
+	uint32_t last_sdma0_wptr_completed;
+	uint32_t last_sdma1_wptr_completed;
+	uint32_t last_grbm_status;
+	uint32_t last_srbm_status2;
+	uint32_t count_switch_total;
+	uint32_t count_switch_skipped;
+	bool	need_work;
+	uint32_t cpc_index[48];
+};
 
 struct function {
 	struct adapter *adapt;
@@ -92,7 +163,7 @@ struct function {
 	int               qemu_pid;
 	int               sched_level;
 
-	volatile   uint32_t  *mmr_base;
+	uint32_t  *mmr_base;
 	uint32_t       mmr_size;
 	uint32_t    *reg_sav_res_data;
 	uint32_t    *reg_sav_res_offset;
@@ -110,6 +181,19 @@ struct function {
 	uint32_t        msg_len;
 	uint32_t        rptr;
 	uint32_t        wptr;
+
+	struct vf_load_status status;
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+	/* determine whether to trap mmio for security */
+	struct completion unblock_complete;
+	struct completion block_complete;
+	enum GIM_MMIO_STATUS mmio_status;
+#endif
+
+	/* Operation Log for GPU Monitoring */
+	struct op_time_log time_log;
+	/* User option of this function */
+	struct amdgim_user_option user_option;
 };
 
 
@@ -181,6 +265,9 @@ enum idh_event {
 	IDH_REQ_GPU_FINI_ACCESS,
 	IDH_REL_GPU_FINI_ACCESS,
 	IDH_REQ_GPU_RESET_ACCESS,
+
+	/* This access is invalid so would be aborted. */
+	IDH_REQ_GPU_INVALID_ACCESS,
 	IDH_TEXT_MESSAGE = 255
 };
 
@@ -267,6 +354,10 @@ struct adapter {
 
 	spinlock_t mailbox_lock;
 
+	/* save fb_base and fb_size for gpu monitoring use */
+	unsigned long long vf_fb_base;
+	unsigned long long vf_fb_size;
+
 	/* SR IOV */
 	unsigned long vf_bar[6];
 
@@ -296,7 +387,7 @@ struct adapter {
 	struct work_struct sched_work;
 
 	/* running functions on a adapter */
-	struct function_list_node *runnig_func_list;
+	struct function_list_node *running_func_list;
 	/* current running function */
 	struct function_list_node *curr_running_func;
 	struct mutex curr_running_func_mutex;
@@ -305,7 +396,7 @@ struct adapter {
 	bool enable_preeption;
 	bool single_switch;
 	bool switch_to_itself;
-	bool schedler_running;
+	bool scheduler_running;
 	unsigned int sched_opt;
 
 	unsigned char *pvbios_image;
@@ -340,6 +431,8 @@ struct adapter {
 	unsigned int rlcv_scratch[16][256];
 	/*memory for save/restore pf pci cfg when pci hot reset*/
 	void *pf_flr_pci_cfg;
+
+	unsigned int sclk_dpm_cap; /* gpu monitor parameter*/
 };
 
 struct gim_ucode_info {
@@ -401,7 +494,7 @@ int free_vf(struct function *func);
 int signal_qemu(int pid, int signal_id);
 int pause_all_guest(struct adapter *adapt);
 int unpause_all_guest(struct adapter *adapt);
-int triger_world_switch(struct adapter *adapt, bool single_switch);
+int trigger_world_switch(struct adapter *adapt, bool single_switch);
 struct function *get_vf(struct adapter *adapt, uint32_t vf_id);
 
 int get_hw_fb_setting(struct adapter *adapt, int vf_num,
@@ -448,8 +541,15 @@ int get_scheduler_time_interval(struct adapter *adapt, struct function *func);
 void check_smu(uint32_t bdf, char *comment);
 void dump_runlist(struct adapter *adapt);
 void *map_vf_fb(struct pci_dev *pdev);
+int get_scheduled_func(struct adapter *adapt);
 void mark_func_scheduled(struct function *func);
 void mark_func_not_scheduled(struct function *func);
+void idle_all_adapters(void);
+
+int gim_init_vf_load_status(struct function *func);
+int idle_pf(struct adapter *adapt);
+int switch_to_pf(struct adapter *adapt);
+int clear_vf_fb(struct adapter *adapt, struct function *func);
 
 extern char gim_driver_name[];
 extern struct aer_item device_list[];

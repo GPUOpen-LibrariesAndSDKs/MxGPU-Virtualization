@@ -39,5 +39,7 @@ struct partition {
 };
 
 void init_vf_fb(struct adapter *, struct function *);
+int get_fb_size_static(struct adapter *adapter, u32 *num_vf, u64 base,
+	u64 total_size, u64 min_size);
 
 #endif

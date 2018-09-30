@@ -43,10 +43,10 @@ void write_register(struct function *func, uint32_t index, uint32_t value);
 uint32_t pf_read_register(struct adapter *adapt, uint32_t index);
 void pf_write_register(struct adapter *adapt, uint32_t index, uint32_t value);
 void delay_in_micro_seconds(uint32_t micro_seconds);
-void write_reg32_idx(volatile uint32_t *mmr, uint32_t reg, uint32_t val);
-void write_reg32(volatile uint32_t *mmr, uint32_t reg, uint32_t val);
-uint32_t read_reg32_idx(volatile uint32_t *mmr, uint32_t reg);
-uint32_t read_reg32(volatile uint32_t *mmr, uint32_t reg);
+void write_reg32_idx(uint32_t *mmr, uint32_t reg, uint32_t val);
+void write_reg32(uint32_t *mmr, uint32_t reg, uint32_t val);
+uint32_t read_reg32_idx(uint32_t *mmr, uint32_t reg);
+uint32_t read_reg32(uint32_t *mmr, uint32_t reg);
 
 #endif
 

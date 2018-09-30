@@ -37,7 +37,6 @@
 #include <linux/fs.h>
 #include <linux/sched.h>
 
-#include "gim_file.h"
 #include "gim_adapter.h"
 #include "gim_os_service.h"
 #include "gim_atombios.h"
@@ -53,12 +52,18 @@
 #include "gim_reset.h"
 #include "gim_s7150_reg.h"
 
-int in_triger_world_switch;
+int in_trigger_world_switch;
 int in_world_switch;
 
 static struct adapter adapts[MAX_ADAPTERS_IN_SYSTEM];
 static uint32_t num_adapters;
 static struct adapter *g_adapter;
+
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+/* qemu will read and respond this command */
+#define GIM_MMIO_COMMAND "complete"
+#endif
+
 /*
  * Return either the global scheduler timer interval or the per-function timer
  * interval based on the following algorithm...
@@ -83,20 +88,20 @@ int get_scheduler_time_interval(struct adapter *adapt, struct function *func)
 	if (quota == 0) {
 		switch (func->sched_level) {
 		case 0:
-			quota = 4;
+			quota = 4000;
 			break;
 
 		case 1:
-			quota = 6;
+			quota = 6000;
 			break;
 
 		case 2:
-			quota = 8;
+			quota = 8000;
 			break;
 
 		/* Config is missing or default in gim_config */
 		default:
-			quota = 7;
+			quota = 7000;
 			break;
 		}
 	}
@@ -106,13 +111,13 @@ int get_scheduler_time_interval(struct adapter *adapt, struct function *func)
 void pause_scheduler(struct adapter *adapt)
 {
 	delete_timer(&adapt->sched_timer);
-	adapt->schedler_running = false;
+	adapt->scheduler_running = false;
 
 	if (work_pending(&adapt->sched_work)) {
 		cancel_work_sync(&adapt->sched_work);
 		gim_info("The scheduler has a world switch ");
 		gim_info("pending while trying to stop the scheduler\n");
-		gim_info("This is not a concern as the schedler\n");
+		gim_info("This is not a concern as the scheduler\n");
 		gim_info("work task will be cancelled\n");
 	}
 
@@ -135,68 +140,22 @@ void resume_scheduler(struct adapter *adapt)
 
 	if (adapt->curr_running_func
 	    == adapt->curr_running_func->next) {
-		quota = 500;
+		quota = 500 * 1000;
 		gim_dbg("VF%d is the only function on the runlist.",
 			adapt->curr_running_func->func->func_id);
-		gim_dbg("Set time interval to %dmsec\n",
-			quota);
+		gim_dbg("Set time interval to %d.%03dmsec\n",
+			quota / 1000, quota % 1000);
 	} else {
 		quota = get_scheduler_time_interval(adapt,
 				adapt->curr_running_func->func);
 	}
 
-	if (!adapt->schedler_running)
-		gim_warn("Restart the Scheduler for %d msec\n", quota);
+	if (!adapt->scheduler_running)
+		gim_warn("Restart the Scheduler for %d.%03dmsec\n",
+			 quota / 1000, quota % 1000);
 
 	start_timer(&adapt->sched_timer, quota);
-	adapt->schedler_running = true;
-}
-
-bool gim_read_rom_from_file(struct adapter *adapt,
-			    unsigned char *rom_image,
-			    unsigned int size)
-{
-	char name[256];
-	struct file *fd;
-	int result = true;
-	int total_bytes;
-	struct pci_dev *pci_dev = adapt->pf.pci_dev;
-
-	snprintf(name, 255, "%s/%04x:%02x:%02x.%1u/rom",
-		"/sys/bus/pci/devices",
-		0, pci_dev->bus->number,
-		PCI_SLOT(pci_dev->devfn),
-		PCI_FUNC(pci_dev->devfn));
-
-	fd = file_open(name, O_RDWR, 0);
-	if (fd == NULL)
-		return false;
-
-	/* This is a quirky thing on Linux.  Even though the ROM and the file
-	 * for the ROM in sysfs are read-only, the string "1" must be written to
-	 * the file to enable the ROM.  After the data has been read, "0" must
-	 * be written to the file to disable the ROM.
-	 */
-	file_write(fd, 0, "1", 1);
-
-	for (total_bytes = 0 ; total_bytes < size ; ) {
-		const int bytes = file_read(fd, total_bytes,
-					(char *) rom_image + total_bytes,
-					size - total_bytes);
-
-		if (bytes == -1) {
-			result = false;
-			break;
-		} else if (bytes == 0)
-			break;
-
-		total_bytes += bytes;
-	}
-
-	file_write(fd, 0, "0", 1);
-
-	file_close(fd);
-	return result;
+	adapt->scheduler_running = true;
 }
 
 
@@ -309,8 +268,7 @@ int gim_read_vbios(struct adapter *adapt)
 	adapt->vbios_image_size = length;
 	adapt->pvbios_image = vbios;
 	gim_info("Valid video BIOS image, ");
-	gim_info("size = 0x%x, check sum is 0x%x\n",
-		 length, sum);
+	gim_info("size = 0x%x, check sum is 0x%x\n", length, sum);
 	return 0;
 }
 
@@ -404,7 +362,7 @@ void *map_fb(struct pci_dev *pdev)
 	void *p_fb_base = NULL;
 	int i = 0;
 
-	p_fb_base = ioremap_nocache(pci_resource_start(pdev, i),
+	p_fb_base = ioremap_wc(pci_resource_start(pdev, i),
 					pci_resource_len(pdev, i));
 
 	if (p_fb_base == NULL)
@@ -441,7 +399,7 @@ static int linux_supports_subordinate_bus(struct adapter *adapt)
 
 	ret = sscanf(buf->release, "%u.%u.%u", &x, &y, &z);
 	if (ret != 3)
-		gim_warn("Faied to get x,y,z\n");
+		gim_warn("Failed to get Linux Release\n");
 	/*
 	 * Linux release numbers are usually of the form x.y.z but occasionally
 	 * they are also x.y.z.a or simply m.n
@@ -505,7 +463,7 @@ static int program_ari_mode(struct adapter *adapt, int mode)
  * ARI mode is determined by the following criteria;
  *
  * - If ARI is enabled by platform, use all VF's on PF bus
- * - If Linux does not support suborinate bus (PF+1 bus) then use all VF's
+ * - If Linux does not support subordinate bus (PF+1 bus) then use all VF's
  *   on PF bus
  * - Use VF on PF+1 bus only if ARI is not enabled and Linux can support it.
  *     Linux 3.13.4 introduces proper support for VFs on PF+1 bus. Versions
@@ -589,7 +547,7 @@ void sched_work_handler(struct work_struct *work)
 {
 	struct adapter *adapt = container_of(work, struct adapter, sched_work);
 
-	triger_world_switch(adapt, false);
+	trigger_world_switch(adapt, false);
 }
 
 uint32_t set_new_adapter(struct pci_dev *pdev)
@@ -661,24 +619,8 @@ uint32_t set_new_adapter(struct pci_dev *pdev)
 		/* enable multi-vectors MSI */
 		enable_mv_msi(curr);
 #endif
-
-		/* This is workaround currently
-		 * At INIT_GPU, the RLC-V fw will check the scratch ram
-		 * location 0x20(FB_CLEAR_DMA_SIZE) to decide:
-		 *      FB_CLEAR_DMA_SIZE[31..16] count of DMA,
-		 *      FB_CLEAR_DMA_SIZE[15..0 ] size_in_bytes, and
-		 *      FB_CLEAR_DMA_SIZE[31..16] * FB_CLEAR_DMA_SIZE[15..0]
-		 *        bytes of frame buffer is cleared by RLCV.
-		 * if FB_CLEAR_DMA_SIZE[31..0] is zero, whole buffer will
-		 * be cleared.
-		 */
-
-		/* Since RLCV is using wrong alorithm and consumes extra time,
-		 * the clear frame of INIT_GPU is disalbed by setting:
-		 *     FB_CLEAR_DMA_SIZE[31..16] = 1
-		 *     FB_CLEAR_DMA_SIZE[15..0 ] = 0
-		 * amdgpuv_clearFrameBuffer() takes its position instead until
-		 * RLCV fix its problem
+		/* Reduce the frame buffer cleared by RLCV 
+		 * amdgpuv_clearFrameBuffer will clear the FB
 		 */
 		pf_write_register(curr, mmRLC_GPU_IOV_SCRATCH_ADDR, 0x20);
 		pf_write_register(curr, mmRLC_GPU_IOV_SCRATCH_DATA, 0x00010000);
@@ -686,43 +628,22 @@ uint32_t set_new_adapter(struct pci_dev *pdev)
 		set_ari_mode(curr);
 
 		if (gim_read_vbios(curr) != 0) {
-			gim_err("fail to read vbios");
+			gim_err("Failed to read vbios");
 			return GIM_ERROR;
 		}
-
-		/* Note: this workaround is only temporary until
-		 * vbios fix bug
-		 */
+		
 		if (!gim_vbios_posted(curr)) {
 			if (gim_post_vbios(curr, POST_VBIOS_IF_NEEDED) != 0) {
-				gim_err("fail to post vbios");
+				gim_err("Failed to post vbios");
 				return GIM_ERROR;
 			}
 			gim_info("gim_post_vbios done");
 		}
-
-		/* TODO:
-		 * be aware of mulit adapter case
-		 */
+		
 		g_adapter = curr;
-
-		/* This is workaround currently
-		 * At INIT_GPU, the RLC-V fw will check the scratch ram
-		 * location 0x20 (FB_CLEAR_DMA_SIZE) to decide:
-		 *      FB_CLEAR_DMA_SIZE[31..16] count of DMA,
-		 *      FB_CLEAR_DMA_SIZE[15..0 ] size_in_bytes, and
-		 * FB_CLEAR_DMA_SIZE[31..16] * FB_CLEAR_DMA_SIZE[15..0]
-		 * bytes of frame buffer is cleared by RLCV.
-		 * If FB_CLEAR_DMA_SIZE[31..0] is zero, whole buffer will
-		 * be cleared
-		 */
-
-		/* Since RLCV is using wrong alorithm and consumes extra time,
-		 * the clear frame of INIT_GPU is disalbed by setting:
-		 *     FB_CLEAR_DMA_SIZE[31..16] = 1
-		 *     FB_CLEAR_DMA_SIZE[15..0 ] = 0
-		 * amdgpuv_clearFrameBuffer() takes its position instead until
-		 * RLCV fix its problem
+		
+		/* Reduce the frame buffer cleared by RLCV 
+		 * amdgpuv_clearFrameBuffer will clear the FB
 		 */
 		write_register(pf, mmRLC_GPU_IOV_SCRATCH_ADDR, 0x20);
 		write_register(pf, mmRLC_GPU_IOV_SCRATCH_DATA, 0x00010000);
@@ -731,10 +652,11 @@ uint32_t set_new_adapter(struct pci_dev *pdev)
 		num_adapters++;
 		curr->adp_id = num_adapters;
 		curr->adapt_id = num_adapters;
-		curr->quota = get_sched_interval_option();
+		curr->quota = get_sched_interval_option() * 1000 +
+				get_sched_interval_us_option();
 		if (curr->quota)
-			gim_info("Scheduler Time interval set to %d msec\n",
-				curr->quota);
+			gim_info("Scheduler Time interval set to %d.%dmsec\n",
+				 curr->quota / 1000, curr->quota % 1000);
 		else {
 			gim_info("Scheduler Time interval is per-vf from XL");
 			gim_info("config file\n");
@@ -752,15 +674,13 @@ uint32_t set_new_adapter(struct pci_dev *pdev)
 		init_frame_buffer_partition(curr);
 
 		curr->curr_running_func = NULL;
-		curr->runnig_func_list = NULL;
+		curr->running_func_list = NULL;
 		curr->pf_flr_pci_cfg = vmalloc(PF_FLR_PCI_CONFIG_SIZE);
 		if (!curr->pf_flr_pci_cfg) {
-			gim_err("fail to allocate memory for pf_flr_pci_cfg\n");
+			gim_err("Failed to allocate memory for pf_flr_pci_cfg\n");
 			return GIM_ERROR;
 		}
-		/* workaround the display timer issue,
-		 * remove this if VBIOS added this logic.
-		 */
+		
 		write_register(pf, mmSMU_IND_INDEX_0, ixCG_INTERRUPT_STATUS);
 		interrupt_status = read_register(pf, mmSMU_IND_DATA_0);
 
@@ -781,20 +701,18 @@ uint32_t set_new_adapter(struct pci_dev *pdev)
 		curr->ih = kcl_mem_small_buffer_alloc(size);
 		memset(curr->ih, 0, sizeof(struct interrupt_handler));
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 1)
 		pci_set_power_state(pdev, PCI_D0);
-#endif
 
 		/* enable MSI */
 		gim_info("enable MSI");
 		if (pci_enable_msi(curr->pf.pci_dev)) {
-			gim_err("fail to enable MSI");
+			gim_err("Failed to enable MSI");
 			return GIM_ERROR;
 		}
 
 		/* init IH ring */
 		if (ih_iv_ring_init(curr) != 0) {
-			gim_err("fail to init iv ring");
+			gim_err("Failed to init iv ring");
 			return GIM_ERROR;
 		}
 
@@ -807,13 +725,13 @@ uint32_t set_new_adapter(struct pci_dev *pdev)
 		/* register interrupt */
 		gim_info("register interrupt");
 		if (adapter_interrupt_register(curr) != 0) {
-			gim_err("fail to register interrupt");
+			gim_err("Failed to register interrupt");
 			return GIM_ERROR;
 		}
 
 		/* enable irq source */
 		if (ih_irq_source_enable(curr) != 0) {
-			gim_err("fail to enable interrupt source");
+			gim_err("Failed to enable interrupt source");
 			return GIM_ERROR;
 		}
 
@@ -821,7 +739,6 @@ uint32_t set_new_adapter(struct pci_dev *pdev)
 		curr->vf_req_gpu_access = 0;
 
 		/*
-		 * workaround
 		 * rlcv might fail to enter safe mode if clock gating is
 		 * enabled disable clock gating as a temp solution,
 		 * 0x0020003c is the golden setting from kmd driver.
@@ -855,7 +772,7 @@ uint32_t set_new_adapter(struct pci_dev *pdev)
 		set_timeout_timer(&curr->timeout_timer);
 
 		/* Timer not running yet */
-		curr->schedler_running = false;
+		curr->scheduler_running = false;
 		resume_scheduler(curr);
 		curr->switch_to_itself = true;
 
@@ -864,6 +781,187 @@ uint32_t set_new_adapter(struct pci_dev *pdev)
 	return GIM_ERROR;
 }
 
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+static ssize_t listen_mmio_show(struct device *dev,
+			       struct device_attribute *attr,
+			       char *buf)
+{
+	struct pci_dev *pdev = NULL;
+	uint32_t bdf = 0;
+	struct function *func = NULL;
+
+	pdev = to_pci_dev(dev);
+	bdf = get_pdev_bdf(pdev);
+	func = bdf_to_function(bdf);
+	if (func == NULL) {
+		gim_err("error bdf\n");
+		return 0;
+	}
+
+	return snprintf(buf, PAGE_SIZE, "%s\n",
+			func->mmio_status == GIM_MMIO_BLOCK ? "block" : "unblock");
+}
+
+static ssize_t access_mmio_show(struct device *dev,
+			       struct device_attribute *attr,
+			       char *buf)
+{
+	struct pci_dev *pdev = NULL;
+	uint32_t bdf = 0;
+	struct function *func = NULL;
+
+	pdev = to_pci_dev(dev);
+	bdf = get_pdev_bdf(pdev);
+	func = bdf_to_function(bdf);
+	if (func == NULL) {
+		gim_err("error bdf\n");
+		return 0;
+	}
+
+	return snprintf(buf, PAGE_SIZE, "%s\n", ACCESS_RANGE);
+}
+
+static ssize_t access_mmio_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct pci_dev *pdev = NULL;
+	uint32_t bdf = 0;
+	int ret = 0;
+	struct function *func = NULL;
+
+	pdev = to_pci_dev(dev);
+	bdf = get_pdev_bdf(pdev);
+	func = bdf_to_function(bdf);
+	if (func == NULL) {
+		gim_err("error bdf\n");
+		return 0;
+	}
+
+	if (sysfs_streq(buf, GIM_MMIO_COMMAND)) {
+		gim_info("complete block mmio\n");
+		complete(&func->block_complete);
+	}
+	else {
+		gim_err("complete block mmio failed");
+		ret = -EINVAL;
+	}
+
+	return ret < 0 ? ret : count;
+}
+
+static ssize_t unaccess_mmio_show(struct device *dev,
+				 struct device_attribute *attr,
+				 char *buf)
+{
+	struct pci_dev *pdev = NULL;
+	uint32_t bdf = 0;
+	struct function *func = NULL;
+
+	pdev = to_pci_dev(dev);
+	bdf = get_pdev_bdf(pdev);
+	func = bdf_to_function(bdf);
+	if (func == NULL) {
+		gim_err("error bdf\n");
+		return 0;
+	}
+
+	return snprintf(buf, PAGE_SIZE, "%s\n", UNACCESS_RANGE);
+}
+
+static ssize_t unaccess_mmio_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct pci_dev *pdev = NULL;
+	uint32_t bdf = 0;
+	int ret = 0;
+	struct function *func = NULL;
+
+	pdev = to_pci_dev(dev);
+	bdf = get_pdev_bdf(pdev);
+	func = bdf_to_function(bdf);
+	if (func == NULL) {
+		gim_err("error bdf\n");
+		return 0;
+	}
+
+	if (sysfs_streq(buf, GIM_MMIO_COMMAND)) {
+		gim_info("complete unblock mmio\n");
+		complete(&func->unblock_complete);
+	} else {
+		gim_err("complete unblock mmio failed\n");
+		ret = -EINVAL;
+	}
+
+	return ret < 0 ? ret : count;
+}
+
+static DEVICE_ATTR_RW(access_mmio);
+static DEVICE_ATTR_RW(unaccess_mmio);
+static DEVICE_ATTR_RO(listen_mmio);
+#endif
+
+extern uint32_t gim_read_vram_dword(struct function *func,
+				    uint64_t offset);
+static ssize_t vf_load_status_show(struct device *dev,
+				   struct device_attribute *attr,
+				   char *buf)
+{
+	uint32_t new_cp_wptr;
+	uint32_t new_sdma_wptr;
+	uint32_t new_cpc_wptr;
+	char temp[512];
+
+	struct pci_dev *pdev = NULL;
+	struct vf_load_status *status = NULL;
+	uint32_t bdf = 0;
+	struct function *func = NULL;
+	int i = 0;
+
+	pdev = to_pci_dev(dev);
+	bdf = get_pdev_bdf(pdev);
+	func = bdf_to_function(bdf);
+	if (func == NULL) {
+		gim_err("error bdf\n");
+		return 0;
+	}
+
+	if (!is_on_run_list(func))
+		return 0;
+	status = &func->status;
+	new_cp_wptr = gim_read_vram_dword(func,
+					  status->cp_wptr_poll_pf_offset);
+	snprintf(temp, PAGE_SIZE, "cp value[%u], last_wptr[%u]\n",
+		 new_cp_wptr, status->last_cp_wptr_completed);
+	strcat(buf, temp);
+
+	new_sdma_wptr = gim_read_vram_dword(func,
+					     status->sdma0_wptr_poll_pf_offset);
+	snprintf(temp, PAGE_SIZE, "sdma0 value[%u] last_wptr[%u]\n",
+		 new_sdma_wptr, status->last_sdma0_wptr_completed);
+	strcat(buf, temp);
+
+	new_sdma_wptr = gim_read_vram_dword(func,
+					     status->sdma1_wptr_poll_pf_offset);
+	snprintf(temp, PAGE_SIZE, "sdma1 value[%u] last_wptr[%u]\n",
+		 new_sdma_wptr, status->last_sdma1_wptr_completed);
+	strcat(buf, temp);
+
+	for (i = 0; i < status->cpc_wptr_poll_count; i++) {
+		new_cpc_wptr = gim_read_vram_dword(func,
+					status->cpc_wptr_poll_pf_offset[i]);
+		snprintf(temp, PAGE_SIZE, "cpc_index[%u_%u_%u] vaule[%u] "
+			 "last_wptr[%u]\n",status->cpc_index[i] >> 6 & 7,
+			 status->cpc_index[i] >> 3 & 7, status->cpc_index[i] & 7,
+			 new_cpc_wptr, status->last_cpc_wptr_completed[i]);
+		strcat(buf, temp);
+	}
+
+	return strlen(buf);
+}
+
+static DEVICE_ATTR_RO(vf_load_status);
 uint32_t init_vfs(struct adapter *adapt, uint32_t vfs_count)
 {
 	uint32_t count;
@@ -898,12 +996,22 @@ uint32_t init_vfs(struct adapter *adapt, uint32_t vfs_count)
 		adapt->vfs[i].dom_id = -1;
 		adapt->vfs[i].fb_partition = NULL;
 		adapt->vfs[i].sched_level = -1;
+		adapt->vfs[i].user_option.valid = false;
 		adapt->fn_list_nodes[i].inuse = 0;
+
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+		adapt->vfs[i].mmio_status = GIM_MMIO_BLOCK;
+		device_create_file(&vf_devices[i]->dev, &dev_attr_access_mmio);
+		device_create_file(&vf_devices[i]->dev, &dev_attr_unaccess_mmio);
+		device_create_file(&vf_devices[i]->dev, &dev_attr_listen_mmio);
+		init_completion(&adapt->vfs[i].block_complete);
+		init_completion(&adapt->vfs[i].unblock_complete);
+#endif
+		device_create_file(&vf_devices[i]->dev, &dev_attr_vf_load_status);
 		pci_disable_error_reporting(adapt->vfs[i].pci_dev);
 	}
 	return GIM_OK;
 }
-
 
 void unmap_mmr_base(struct adapter *p_adapt)
 {
@@ -929,6 +1037,32 @@ void pause_all_schedulers(void)
 	}
 }
 
+void idle_one_adapter(struct adapter *adapt)
+{
+	mutex_lock(&adapt->curr_running_func_mutex);
+	pause_scheduler(adapt);
+	mutex_unlock(&adapt->curr_running_func_mutex);
+
+	stop_current_vf(adapt);
+	if (adapt->curr_running_func != NULL) {
+		gim_info("switch back to pf\n");
+		load_vf(&adapt->pf);
+		run_vf(&adapt->pf);
+	}
+}
+
+void idle_all_adapters(void)
+{
+	int i = 0;
+	struct adapter *curr;
+
+	for (i = 0 ; i < num_adapters ; ++i) {
+		curr = adapts + i;
+		gim_info("idle adapter[%u]\n", curr->adapt_id);
+		idle_one_adapter(curr);
+	}
+}
+
 void release_all_adapters(void)
 {
 	uint32_t i;
@@ -936,6 +1070,25 @@ void release_all_adapters(void)
 
 	for (i = 0 ; i < num_adapters ; ++i) {
 		curr = adapts + i;
+
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+		{
+			uint32_t j;
+			struct pci_dev *pdev;
+			struct function *vfs;
+
+			vfs = curr->vfs;
+			for(j = 0; j < curr->enabled_vfs; j++) {
+				pdev = vfs[i].pci_dev;
+				device_remove_file(&pdev->dev,
+						&dev_attr_access_mmio);
+				device_remove_file(&pdev->dev,
+						   &dev_attr_unaccess_mmio);
+				device_remove_file(&pdev->dev,
+						   &dev_attr_listen_mmio);
+			}
+		}
+#endif
 
 		vfree(curr->pvbios_image);
 		ih_irq_source_disable(curr);
@@ -1210,10 +1363,6 @@ static bool gfx_is_idle(struct function *func)
 			SRBM_STATUS__DRM_BUSY_MASK))
 		return false;
 
-	/* TODO, we need to have a way to check if RLC busy.
-	 * Confirm new RLC design.
-	 */
-
 	if (data & SRBM_STATUS__SEM_BUSY_MASK)
 		return false;
 
@@ -1400,10 +1549,6 @@ void dump_gpu_status(struct function *func)
 		SRBM_STATUS__DRM_BUSY_MASK))
 		gim_err("DRM busy\n");
 
-	/* TODO, we need to have a way to check if RLC busy.
-	 * Confirm new RLC design.
-	 */
-
 	if (data & SRBM_STATUS__SEM_BUSY_MASK)
 		gim_err("SEM busy\n");
 
@@ -1464,30 +1609,6 @@ int wait_for_gfx_idle(struct function *func)
 	return GIM_ERROR;
 }
 
-
-static bool is_cmd_complete(struct function *func)
-{
-	kcl_type_u8 command;
-	kcl_type_u8 status;
-	struct adapter *adapt = func->adapt;
-	uint32_t  pci_status;
-
-
-	pci_read_config_dword(adapt->pf.pci_dev, 4, &pci_status);
-	gim_dbg("Cmd/Status @ 4 = 0x%08x\n", pci_status);
-
-	pci_read_config_byte(adapt->pf.pci_dev,
-		adapt->gpuiov.pos + PCI_GPUIOV_CMD_CONTROL, &command);
-	pci_read_config_byte(adapt->pf.pci_dev,
-		adapt->gpuiov.pos + PCI_GPUIOV_CMD_STATUS, &status);
-
-	pci_read_config_dword(adapt->pf.pci_dev, 4, &pci_status);
-	gim_dbg("Cmd/Status @ 4 = 0x%08x GPUIOV Cmd = 0x%0x, \t"
-		"Status = 0x%0x\n", pci_status, command, status);
-
-	return ((!(command & CMD_EXECUTE)) && status == 0);
-}
-
 #define GPU_STATUS_SIZE 13
 static const unsigned int gpu_hang_check_list[GPU_STATUS_SIZE] = {
 	mmCP_RB_RPTR,
@@ -1507,102 +1628,12 @@ static const unsigned int gpu_hang_check_list[GPU_STATUS_SIZE] = {
 	mmSQ_LB_DATA_TEX_STALLS
 };
 
-/*
- * Use CP/SDMA RB/IB' RPTR and CP performanace counter to determine if the GPU
- * is really hung or not.
- *
- * mmSQ_LB_DATA_ALU_CYCLES:  when the CU(SQ) perform an algorithm operation,
- *                           this counter increases.
- * mmSQ_LB_DATA_ALU_STALLS:  this counter tell us how many CU(SQ)  instructions
- *                           are in a waiting state, pending to be executed.
- * mmSQ_LB_DATA_TEX_CYCLES:  when the CU(SQ)  perform an memory access
- *                           operation, this counter increases.
- * mmSQ_LB_DATA_TEX_STALLS:  this counter tell us how many CU(SQ)  instructions
- *                           are pending for memory access operation(may be
- *                           waiting for the MC ACK)
- *
- * if the CP/SDMA  RB/IB's RPTR and the above 4 counter does not moves on for
- * 100 ms, we can solid believe that the GFX IP is really hung.
- */
-static int is_gpu_hang(struct adapter *adapt)
-{
-
-	int i = 0;
-	int reg_index = 0;
-	unsigned int gpu_hang_check_list_data[GPU_STATUS_SIZE];
-	unsigned char status = 255;
-	unsigned char command = 255;
-	int ret = 1;
-	struct timespec diff;
-	struct timespec start;
-	struct pci_dev *pdev = adapt->pf.pci_dev;
-	struct function *pf = &adapt->pf;
-	int gpuiov_pos = adapt->gpuiov.pos;
-
-	unsigned int  data = SQ_LB_CTR_CTRL__START_MASK |
-				SQ_LB_CTR_CTRL__CLEAR_MASK;
-
-	getnstimeofday(&start);
-
-	/* Start/clear perf counters. */
-	write_register(pf, mmSQ_LB_CTR_CTRL, data);
-
-	for (i = 0; i < GPU_STATUS_SIZE; i++)
-		gpu_hang_check_list_data[i] =
-				read_register(pf, gpu_hang_check_list[i]);
-
-	/* wait up to 10 ms */
-	for (i = 0; i < 100; i++) {
-		msleep(10);
-
-		pci_read_config_byte(pdev,
-				gpuiov_pos + PCI_GPUIOV_CMD_CONTROL,
-				&command);
-
-		pci_read_config_byte(pdev,
-				gpuiov_pos + PCI_GPUIOV_CMD_STATUS,
-				&status);
-
-		if ((!(command & CMD_EXECUTE)) && (status == 0)) {
-			ret = 0;
-			break;
-		}
-
-		data = SQ_LB_CTR_CTRL__START_MASK|SQ_LB_CTR_CTRL__LOAD_MASK;
-
-		write_register(pf, mmSQ_LB_CTR_CTRL, data);
-
-		for (reg_index = 0; reg_index < GPU_STATUS_SIZE; reg_index++) {
-			if (gpu_hang_check_list_data[reg_index] !=
-			read_register(pf, gpu_hang_check_list[reg_index])) {
-				/* rptr or CP performance counter moves on,
-				 * it is not hung
-				 */
-				ret = 0;
-				break;
-			}
-		}
-
-		if (ret == 0)
-			break;
-
-		diff = time_elapsed(&start);
-		if (diff.tv_nsec > 100*1000000)
-			/* it has waited for 100 ms. */
-			break;
-	}
-
-	write_register(pf, mmSQ_LB_CTR_CTRL, 0);
-
-	return ret;
-}
-
 static int wait_cmd_complete(struct function *func)
 {
 	struct timespec start_time;
 	struct timespec delta_time;
 
-	uint32_t time_out = 1; /* 1 seconds */
+	uint32_t time_out = 2; /* 2 seconds */
 	kcl_type_u8 command;
 	kcl_type_u8 gpu_status;
 	uint32_t data;
@@ -1623,20 +1654,27 @@ static int wait_cmd_complete(struct function *func)
 
 	delta_time = time_elapsed(&start_time);
 	while (delta_time.tv_sec < time_out) {
-		if (is_cmd_complete(func)) {
-			gim_dbg("Command 0x%02x took %ld.%09ld to complete",
-				command, delta_time.tv_sec, delta_time.tv_nsec);
-			command &= 7;
+		pci_read_config_byte(adapt->pf.pci_dev,
+				adapt->gpuiov.pos + PCI_GPUIOV_CMD_CONTROL, &command);
+		pci_read_config_byte(adapt->pf.pci_dev,
+				adapt->gpuiov.pos + PCI_GPUIOV_CMD_STATUS, &gpu_status);
+		if ((!(command & CMD_EXECUTE)) &&
+				(COMMAND_DONE == gpu_status)) {
 			return GIM_OK;
-		}
-
-		delta_time = time_elapsed(&start_time);
-		if (delta_time.tv_nsec > 100*1000000) {
-			if (is_gpu_hang(adapt))
+		} else {
+			if (SDMA_HANG == gpu_status) {
+				gim_warn("SDMA engine hang detected");
 				break;
-		}
+			}
 
-		udelay(10);
+			if (GFX_HANG == gpu_status) {
+				gim_warn("GFX engine hang detected");
+				break;
+			}
+
+			delta_time = time_elapsed(&start_time);
+			udelay(100);
+		}
 	}
 
 	gim_err(" wait_cmd_complete -- time out after %ld.%09ld sec\n",
@@ -1709,15 +1747,21 @@ int run_vf(struct function *func)
 			RUN_GPU, is_pf ? 0 : VF_ID(func->func_id), 0x0);
 	ret = wait_cmd_complete(func);
 
+	/* record time of start to run vf */
+	getnstimeofday(&(func->time_log.active_last_tick));
+
 	return ret;
 }
 
 int idle_vf(struct function *func)
 {
-	struct adapter *adapt = func->adapt;
-	int  is_pf = (&adapt->pf == func);
+	int  is_pf;
 	uint32_t status;
+	struct timespec tmp;
+	struct adapter *adapt;
 
+	adapt = func->adapt;
+	is_pf = (&adapt->pf == func);
 	if (!func->is_scheduled
 		&& (adapt->sched_opt == SCHEDULER__PREDICT_PERF)) {
 		gim_info("drop idle_vf, since VF%d is not scheduled\n",
@@ -1734,8 +1778,18 @@ int idle_vf(struct function *func)
 		"RPTR = 0x%08x, WPTR = 0x%08x\n",
 		func->adapt->adp_id,
 		is_pf ? "PF" : "VF", func->func_id,
-		func->rptr,
-		func->wptr);
+		func->rptr, func->wptr);
+
+	/* record current vf active time*/
+	if (func->time_log.active_last_tick.tv_sec != 0) {
+		getnstimeofday(&tmp);
+		tmp = timespec_sub(tmp, func->time_log.active_last_tick);
+		func->time_log.active_time =
+			timespec_add(func->time_log.active_time, tmp);
+
+		/* clear last tick record, in case of twice idle */
+		func->time_log.active_last_tick.tv_sec = 0;
+	}
 
 	set_gpuiov_command(adapt->pf.pci_dev,
 			&adapt->gpuiov,
@@ -1867,7 +1921,7 @@ int load_rlcv_state(struct function *vf)
 
 	if (!vf->is_scheduled
 		&& (adapt->sched_opt == SCHEDULER__PREDICT_PERF)) {
-		gim_err("Prevent to load_rlcv_state. VF%d is not scheduled\n",
+		gim_err("Unable to LOAD_RLCV_STATE. VF%d is not scheduled\n",
 			vf->func_id);
 		return -1;
 	}
@@ -1896,7 +1950,7 @@ int save_rlcv_state(struct function *vf)
 
 	if (!vf->is_scheduled
 		&& (adapt->sched_opt == SCHEDULER__PREDICT_PERF)) {
-		gim_err("Prevent to save_rlcv_state. VF%d is not scheduled\n",
+		gim_err("Unable to SAVE_RLCV_STATE. VF%d is not scheduled\n",
 			vf->func_id);
 		return -1;
 	}
@@ -1920,7 +1974,12 @@ int save_rlcv_state(struct function *vf)
 
 int reset_rlcv_state_machine(struct adapter *adapt)
 {
-	struct function *vf = adapt->curr_running_func->func;
+	struct function *vf;
+
+	if (adapt->curr_running_func == NULL)
+		return 0;
+
+	vf = adapt->curr_running_func->func;
 
 	if (adapt->sched_opt == SCHEDULER__PREDICT_PERF)
 		vf->is_scheduled = 1; /* PF always can be scheduled*/
@@ -1965,7 +2024,8 @@ int world_switch_divided(struct function *func, struct function *next_func)
 
 	if ((func->is_scheduled
 		&& (func->adapt->sched_opt == SCHEDULER__PREDICT_PERF))
-		|| (func->adapt->sched_opt == SCHEDULER__ROUND_ROBIN)) {
+		|| (func->adapt->sched_opt == SCHEDULER__ROUND_ROBIN_SOLID)
+		|| (func->adapt->sched_opt == SCHEDULER__ROUND_ROBIN_LIQUID)) {
 		ret = idle_vf(func);
 
 		if (ret != GIM_OK) {
@@ -1985,7 +2045,8 @@ int world_switch_divided(struct function *func, struct function *next_func)
 
 	if ((next_func->is_scheduled
 		&& (next_func->adapt->sched_opt == SCHEDULER__PREDICT_PERF))
-		|| (next_func->adapt->sched_opt == SCHEDULER__ROUND_ROBIN)) {
+		|| (next_func->adapt->sched_opt == SCHEDULER__ROUND_ROBIN_SOLID)
+		|| (next_func->adapt->sched_opt == SCHEDULER__ROUND_ROBIN_LIQUID)) {
 		ret = load_vf(next_func);
 
 		if (ret != GIM_OK) {
@@ -2033,9 +2094,11 @@ int stop_current_vf(struct adapter *adapt)
 		return GIM_OK;
 	}
 
+	gim_info("stop current vf[%d]\n", curr->func->func_id);
 	if ((curr->func->is_scheduled
 		 && (adapt->sched_opt == SCHEDULER__PREDICT_PERF))
-		|| (adapt->sched_opt == SCHEDULER__ROUND_ROBIN)) {
+		|| (adapt->sched_opt == SCHEDULER__ROUND_ROBIN_SOLID)
+		|| (adapt->sched_opt == SCHEDULER__ROUND_ROBIN_LIQUID)) {
 		if (idle_vf(curr->func)) {
 			if (gim_sched_reset(adapt, curr->func, NULL,
 					FLR_REASON_FAILED_IDLE) != 0) {
@@ -2055,10 +2118,193 @@ int stop_current_vf(struct adapter *adapt)
 		}
 
 	} else {
-		gim_warn("runlist is not schedued, ignore stop\n");
+		gim_warn("runlist is not scheduled, ignore stop\n");
 	}
 
 	return GIM_OK;
+}
+
+static void gim_srbm_select(struct function *func,
+			   u32 me, u32 pipe, u32 queue, u32 vmid)
+{
+	u32 srbm_gfx_cntl = 0;
+	srbm_gfx_cntl = REG_SET_FIELD(srbm_gfx_cntl, SRBM_GFX_CNTL, PIPEID, pipe);
+	srbm_gfx_cntl = REG_SET_FIELD(srbm_gfx_cntl, SRBM_GFX_CNTL, MEID, me);
+	srbm_gfx_cntl = REG_SET_FIELD(srbm_gfx_cntl, SRBM_GFX_CNTL, VMID, vmid);
+	srbm_gfx_cntl = REG_SET_FIELD(srbm_gfx_cntl, SRBM_GFX_CNTL, QUEUEID, queue);
+	write_register(func, mmSRBM_GFX_CNTL, srbm_gfx_cntl);
+}
+
+static int gim_init_vf_compute_load_status(struct function *func,
+					    uint64_t base)
+{
+	struct vf_load_status *status = &func->status;
+	uint32_t me_id, pipe_id, queue_id;
+	uint32_t addr_low, addr_hi;
+	uint32_t count = 0;
+	uint64_t offset = 0;
+
+#define num_me_pipes_per_me1 4
+#define num_me_pipes_per_me2 2
+	for (me_id = 1; me_id < 3; me_id++) {
+		int pipe_num ;
+		pipe_num = (me_id == 1 ? num_me_pipes_per_me1 :
+			    num_me_pipes_per_me2);
+
+		for (pipe_id = 0; pipe_id < pipe_num; pipe_id++) {
+			for(queue_id = 0; queue_id < 8; queue_id++) {
+				/* set vmid as 0 by default due to kernel space*/
+				gim_srbm_select(func, me_id, pipe_id,
+						queue_id, 0);
+				if (read_register(func, mmCP_HQD_ACTIVE) & 1) {
+					/* wptr assignement */
+					addr_low = read_register(func,
+							mmCP_HQD_PQ_WPTR_POLL_ADDR);
+					addr_hi = read_register(func,
+							mmCP_HQD_PQ_WPTR_POLL_ADDR_HI);
+					count = status->cpc_wptr_poll_count;
+					offset = addr_low + (addr_hi << 31);
+					/* under liquid mode, wptr need be placed in BAR0 */
+					/* For linux, wptr need be located at 0~256MB */
+					if (((offset & 0xf400000000) == 0) &&
+					    ((offset >> 20) > 256))
+						return -1;
+					/* For windows, wptr need be located at 0~256MB
+					 * within the offset 0xf4`00000000 */
+					if (((offset & 0xf400000000) != 0) &&
+					    ((offset & 0xffffffff) >> 20 > 256))
+						return -1;
+
+					status->cpc_wptr_poll_pf_offset[count] =
+						offset + (base << 20);
+					status->cpc_index[count] = (me_id << 6) +
+						(pipe_id << 3) + queue_id;
+					status->cpc_wptr_poll_count++;
+					gim_dbg("cpc wptr poll add low = %x\n",addr_low);
+					gim_dbg("cpc wptr poll add hi = %x\n",addr_hi);
+					gim_dbg("cpc wptr poll offset = %llx\n",
+						status->cpc_wptr_poll_pf_offset[count]);
+					gim_dbg("cpc_wptr_poll_count = %x\n", count);
+					/*  rptr assignment */
+					addr_low = read_register(func,
+							mmCP_HQD_PQ_RPTR_REPORT_ADDR);
+					addr_hi = read_register(func,
+							mmCP_HQD_PQ_RPTR_REPORT_ADDR_HI);
+					count = status->cpc_rptr_poll_count;
+					offset = addr_low + (addr_hi << 31);
+					if (((offset & 0xf400000000) == 0) &&
+					    ((offset >> 20) > 256))
+						return -1;
+					if (((offset & 0xf400000000) != 0) &&
+					    ((offset & 0xffffffff) >> 20 > 256))
+						return -1;
+
+					status->cpc_rptr_report_pf_offset[count] =
+						offset + (base << 20);
+					status->cpc_rptr_poll_count++;
+					gim_dbg("cpc rptr poll add low = %x\n",addr_low);
+					gim_dbg("cpc rptr poll add hi = %x\n",addr_hi);
+					gim_dbg("cpc rptr poll offset = %llx\n",
+						status->cpc_rptr_report_pf_offset[count]);
+					gim_dbg("cpc_rptr_poll_count = %x\n",
+						 status->cpc_rptr_poll_count);
+				}
+				gim_srbm_select(func, 0, 0, 0, 0);
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int gim_init_vf_gfx_load_status(struct function *func,
+					uint64_t base)
+{
+	struct vf_load_status *status = &func->status;
+	uint32_t addr_low, addr_hi;
+	uint64_t offset;
+
+	gim_dbg("vf[%u] base: %lldMB\n", func->func_id, base);
+	/* cp block */
+	addr_low = read_register(func, mmCP_RB_WPTR_POLL_ADDR_LO);
+	addr_hi = read_register(func, mmCP_RB_WPTR_POLL_ADDR_HI);
+	offset = addr_low + (addr_hi << 31);
+	/* under liquid mode, wptr need be placed in BAR0 */
+	/* For linux, wptr need be located at 0~256MB */
+	if (((offset & 0xf400000000) == 0) &&
+	    ((offset >> 20) > 256))
+		return -1;
+	/* For windows, wptr need be located at 0~256MB
+	 * within the offset 0xf4`00000000 */
+	if (((offset & 0xf400000000) != 0) &&
+	    ((offset & 0xffffffff) >> 20 > 256))
+		return -1;
+
+	status->cp_wptr_poll_pf_offset = offset + (base << 20);
+	gim_dbg("mmCP_RB_WPTR_POLL_ADDR_LO = 0x%x\n", addr_low);
+	gim_dbg("mmCP_RB_WPTR_POLL_ADDR_HI = 0x%x\n", addr_hi);
+	gim_dbg("cp wpoll offset = 0x%llx", status->cp_wptr_poll_pf_offset);
+
+	/* sdma0 block */
+	addr_low = read_register(func, mmSDMA0_GFX_RB_WPTR_POLL_ADDR_LO);
+	addr_hi = read_register(func, mmSDMA0_GFX_RB_WPTR_POLL_ADDR_HI);
+	offset = addr_low + (addr_hi << 31);
+	if (((offset & 0xf400000000) == 0) &&
+	    ((offset >> 20) > 256))
+		return -1;
+	if (((offset & 0xf400000000) != 0) &&
+	    ((offset & 0xffffffff) >> 20 > 256))
+		return -1;
+
+	status->sdma0_wptr_poll_pf_offset =  offset + (base << 20);
+	gim_dbg("mmSDMA0_GFX_RB_WPTR_POLL_ADDR_LO = 0x%x\n", addr_low);
+	gim_dbg("mmSDMA0_GFX_RB_WPTR_POLL_ADDR_HI = 0x%x\n", addr_hi);
+	gim_dbg("SDMA0 wpoll offset = 0x%llx",
+		status->sdma0_wptr_poll_pf_offset);
+
+	/* sdma1 block*/
+	addr_low = read_register(func, mmSDMA1_GFX_RB_WPTR_POLL_ADDR_LO);
+	addr_hi = read_register(func, mmSDMA1_GFX_RB_WPTR_POLL_ADDR_HI);
+	offset = addr_low + (addr_hi << 31);
+	if (((offset & 0xf400000000) == 0) &&
+	    ((offset >> 20) > 256))
+		return -1;
+	if (((offset & 0xf400000000) != 0) &&
+	    ((offset & 0xffffffff) >> 20 > 256))
+		return -1;
+
+	status->sdma1_wptr_poll_pf_offset =  offset + (base << 20);
+	gim_dbg("mmSDMA1_GFX_RB_WPTR_POLL_ADDR_LO = 0x%x\n", addr_low);
+	gim_dbg("mmSDMA1_GFX_RB_WPTR_POLL_ADDR_HI = 0x%x\n", addr_hi);
+	gim_dbg("SDMA1 wpoll offset = 0x%llx",
+		 status->sdma1_wptr_poll_pf_offset);
+
+	return 0;
+}
+
+static void gim_clean_vf_load_status(struct function *func)
+{
+	if (func->adapt->sched_opt != SCHEDULER__ROUND_ROBIN_LIQUID)
+		return;
+
+	memset(&func->status, 0, sizeof(func->status));
+}
+
+int gim_init_vf_load_status(struct function *func)
+{
+	uint64_t base = func->fb_partition->slot.base;
+	int ret = -1;
+
+	if (func->adapt->sched_opt != SCHEDULER__ROUND_ROBIN_LIQUID)
+		return 0;
+
+	gim_clean_vf_load_status(func);
+
+	ret = gim_init_vf_gfx_load_status(func, base);
+	if (ret)
+		return ret;
+
+	return gim_init_vf_compute_load_status(func, base);
 }
 
 int alloc_new_vf(struct function *func, int dom_id, int qemu_pid,
@@ -2084,7 +2330,7 @@ int alloc_new_vf(struct function *func, int dom_id, int qemu_pid,
 			mmRLC_GPM_SCRATCH_ADDR,
 			REGISTER_RESTORE_LIST_SIZE);
 
-
+	//TODO:sav or save?
 	sav_res_list_size = read_register(&adapt->pf,
 						mmRLC_GPM_SCRATCH_DATA);
 
@@ -2106,8 +2352,8 @@ int alloc_new_vf(struct function *func, int dom_id, int qemu_pid,
 		vmalloc(sizeof(uint32_t) * sav_res_list_size);
 	func->sav_res_list_size = sav_res_list_size;
 
-	/* allocate fb partition
-	 * ignor fb_size if it is FIX schema
+	/* Allocate fb partition
+	 * Ignore fb_size if it is static partitioning
 	 */
 	if (get_fb_partition_option() == FB_PARTITION__DYNAMIC)	{
 		/* frame buffer size must meet the requirement */
@@ -2179,8 +2425,8 @@ int alloc_new_vf(struct function *func, int dom_id, int qemu_pid,
 	}
 
 	gim_info("Defer adding VF to runlist until Mailbox work queue");
-	/* VF is started in work qeueu
-	 * this is moved to work qeueu
+	/* VF is started in work queue
+	 * this is moved to work queue
 	 */
 
 	func->is_available = 0;
@@ -2206,9 +2452,6 @@ struct function_list_node *add_func_to_run_list(struct function *func)
 		return NULL;
 
 	adapt = func->adapt;
-	/* increase the module reference count*/
-	if(adapt->sched_opt != SCHEDULER__PREDICT_PERF)
-		try_module_get(THIS_MODULE);
 
 	new_node = is_on_run_list(func);
 
@@ -2240,13 +2483,9 @@ struct function_list_node *add_func_to_run_list(struct function *func)
 			adapt->curr_running_func = new_node;
 		} else {
 			gim_err("Failed to allocate a new node\n");
-			if(adapt->sched_opt != SCHEDULER__PREDICT_PERF)
-				module_put(THIS_MODULE);
 		}
 	} else {
 		gim_warn("VF%d is already on the run_list.\n", func->func_id);
-		if(adapt->sched_opt != SCHEDULER__PREDICT_PERF)
-			module_put(THIS_MODULE);
 	}
 
 	return new_node;
@@ -2261,7 +2500,7 @@ struct function_list_node *add_func_to_run_list(struct function *func)
  * (As an optimization the node could be created as an array of 16 like the
  * functions but that requires changes to init_vf as well).
  *
- * Don't grab a spn lock in this function as it is assumed that the caller
+ * Don't grab a spin lock in this function as it is assumed that the caller
  * already has the lock since it is working on the run_list.
  *
  */
@@ -2311,11 +2550,8 @@ void remove_from_run_list(struct function *func)
 		node->next->pre = node->pre;
 		gim_info(" free node 0x%p\n", node);
 		free_fn_list_node(adapt, node);
-		/* decrease the module reference count*/
-		if(adapt->sched_opt != SCHEDULER__PREDICT_PERF)
-			module_put(THIS_MODULE);
 	} else {
-		/* Its not the first fucntion on the list, therefore there are
+		/* Its not the first function on the list, therefore there are
 		 * more than 1 nodes on the list. Need to scan the list to find
 		 * the function
 		 */
@@ -2334,9 +2570,6 @@ void remove_from_run_list(struct function *func)
 			node->next->pre = node->pre;
 			gim_info("  Freeing node %p\n", node);
 			free_fn_list_node(adapt, node);
-			/* decrease the module reference count*/
-			if(adapt->sched_opt != SCHEDULER__PREDICT_PERF)
-				module_put(THIS_MODULE);
 		} else {
 			gim_info("VF%d not found on the running list",
 				func->func_id);
@@ -2344,10 +2577,37 @@ void remove_from_run_list(struct function *func)
 	}
 }
 
+/* get number of scheduled functions for
+ * predictable performance scheduler
+ */
+int get_scheduled_func(struct adapter *adapt)
+{
+	int num;
+	struct function_list_node *start_node;
+	struct function_list_node *next_node;
+
+	start_node = adapt->curr_running_func;
+	next_node = adapt->curr_running_func->next;
+
+	if (start_node == NULL)
+		return 0;
+
+	for (num = 1; num <= adapt->enabled_vfs;) {
+		if (next_node == start_node)
+			break;
+
+		if (next_node->func->is_scheduled)
+			num++;
+
+		next_node = next_node->next;
+	}
+
+	return num;
+}
+
 void mark_func_scheduled(struct function *func)
 {
 	/* increase the module reference count*/
-	try_module_get(THIS_MODULE);
 	if (func->is_scheduled)
 		gim_warn("Mark VF%d is scheduled again\n", func->func_id);
 	else
@@ -2357,13 +2617,19 @@ void mark_func_scheduled(struct function *func)
 
 void mark_func_not_scheduled(struct function *func)
 {
+	struct adapter *adapt;
+
+	adapt = func->adapt;
+
+	if (adapt->curr_running_func->func == func)
+		stop_current_vf(adapt);
+
 	if (!func->is_scheduled)
 		gim_warn("Mark VF%d is not scheduled again\n", func->func_id);
 	else
 		gim_info("Mark VF%d is not scheduled\n", func->func_id);
+
 	func->is_scheduled = 0;
-	/* decrease the module reference count*/
-	module_put(THIS_MODULE);
 }
 
 /*
@@ -2389,12 +2655,11 @@ void mark_func_not_scheduled(struct function *func)
  * - Switch away from PF after the clear has been completed.
  *
  */
-static int clear_vf_fb(struct adapter *adapt, struct function *func)
+int clear_vf_fb(struct adapter *adapt, struct function *func)
 {
 	int ret = 0;
 
 	gim_info("clear_vf_fb() - Clear FB for VF%d\n", func->func_id);
-
 
 	/* Switch from curr function to PF.  The current function is at
 	 * the head of the runlist. If the runlist is empty then "func" was
@@ -2467,10 +2732,225 @@ int free_vf(struct function *func)
 	}
 
 	func->is_available = 1;
+
+#ifdef CONFIG_MMIO_QEMU_SECURITY
+	func->mmio_status = GIM_MMIO_BLOCK;
+#endif
+
 	adapt->available_vfs++;
 	return GIM_OK;
 }
 
+uint32_t gim_read_vram_dword(struct function *func,
+				    uint64_t offset)
+{
+	struct adapter *adapt = func->adapt;
+
+	pf_write_register(adapt, mmMM_INDEX_HI, (uint32_t)(offset >> 31));
+	pf_write_register(adapt, mmMM_INDEX,
+			 (uint32_t)(0x80000000 | (offset & 0x7ffffffc)));
+	return pf_read_register(adapt, mmMM_DATA);
+}
+
+#define POLL_COUNT 48
+static void gim_update_vf_load_status(struct function *func)
+{
+	uint32_t grbm_status;
+	uint32_t srbm_status2;
+	uint32_t last_cp_rptr, last_sdma0_rptr, last_sdma1_rptr;
+	uint32_t last_cp_wptr, last_sdma0_wptr, last_sdma1_wptr;
+	uint32_t cpc_wptr[POLL_COUNT];
+	uint32_t cpc_rptr[POLL_COUNT];
+	int i;
+	struct vf_load_status *status = &func->status;
+	struct adapter *adapt = func->adapt;
+
+	if (adapt->sched_opt != SCHEDULER__ROUND_ROBIN_LIQUID)
+		return;
+	grbm_status = read_register(func, mmGRBM_STATUS);
+	srbm_status2 = read_register(func, mmSRBM_STATUS2);
+	status->need_work = false;
+
+	/* update the last wptr completed only when GPU is in an IDLE status */
+	if (REG_GET_FIELD(grbm_status, GRBM_STATUS, CP_BUSY) ||
+	    REG_GET_FIELD(srbm_status2, SRBM_STATUS2, SDMA_BUSY) ||
+	    REG_GET_FIELD(srbm_status2, SRBM_STATUS2, SDMA1_BUSY)) {
+		gim_dbg("skip update curr vf[%u] load status.\n", func->func_id);
+		gim_dbg("grbm status[0x%x] srbm status2[0x%x]\n",
+			 grbm_status, srbm_status2);
+		func->status.last_grbm_status = grbm_status;
+		func->status.last_srbm_status2 = srbm_status2;
+		return;
+	}
+
+	/* step 1, read the rptr for each ring first. */
+	last_cp_rptr = read_register(func, mmCP_RB_RPTR);
+	last_sdma0_rptr = read_register(func, mmSDMA0_GFX_RB_RPTR);
+	last_sdma1_rptr = read_register(func, mmSDMA1_GFX_RB_RPTR);
+	for(i = 0; i < status->cpc_wptr_poll_count; i++) {
+		cpc_rptr[i] = gim_read_vram_dword(func,
+					status->cpc_rptr_report_pf_offset[i]);
+		gim_dbg("vf[%u] compute-ring[%u] last_cpc_rptr[0x%x]\n",
+			func->func_id, i, cpc_rptr[i]);
+	}
+	gim_dbg("vf[%u] last_cp_rptr = 0x%x, last_sdma0_rptr = 0x%x, last_sdma1_rptr = "
+		 "0x%x\n", func->func_id, last_cp_rptr, last_sdma0_rptr, last_sdma1_rptr);
+
+	/* step 2, read the wptr for each ring.	*/
+	last_cp_wptr = gim_read_vram_dword(func,
+					   status->cp_wptr_poll_pf_offset);
+	last_sdma0_wptr = gim_read_vram_dword(func,
+					status->sdma0_wptr_poll_pf_offset);
+	last_sdma1_wptr = gim_read_vram_dword(func,
+					status->sdma1_wptr_poll_pf_offset);
+	for(i = 0; i < status->cpc_wptr_poll_count; i++)
+		cpc_wptr[i] = gim_read_vram_dword(func,
+				status->cpc_wptr_poll_pf_offset[i]);
+
+
+	/* step 3, read the GPU status */
+	grbm_status = read_register(func, mmGRBM_STATUS);
+	srbm_status2 = read_register(func, mmSRBM_STATUS2);
+
+	/* step 4, update the last wptr if it is completed.
+	   if wptr == rptr and GPU is idle,
+	   we can 100% sure that wptr has been completed.*/
+	if (!REG_GET_FIELD(grbm_status, GRBM_STATUS, CP_BUSY) &&
+	    !REG_GET_FIELD(srbm_status2, SRBM_STATUS2, SDMA_BUSY) &&
+	    !REG_GET_FIELD(srbm_status2, SRBM_STATUS2, SDMA1_BUSY)) {
+		status->last_grbm_status = grbm_status;
+		status->last_srbm_status2 =  srbm_status2;
+		if(last_cp_rptr == last_cp_wptr)
+			status->last_cp_wptr_completed = last_cp_wptr;
+		else
+			status->need_work = true;
+
+		if(last_sdma0_rptr == last_sdma0_wptr)
+			status->last_sdma0_wptr_completed = last_sdma0_wptr;
+		else
+			status->need_work = true;
+
+		if(last_sdma1_rptr == last_sdma1_wptr)
+			status->last_sdma1_wptr_completed = last_sdma1_wptr;
+		else
+			status->need_work = true;
+
+		for(i = 0; i < status->cpc_wptr_poll_count; i++)
+			if(cpc_wptr[i] == cpc_rptr[i])
+				status->last_cpc_wptr_completed[i] = cpc_wptr[i];
+			else
+				status->need_work = true;
+		gim_dbg("vf[%u] last_cp_wptr = 0x%x, last_sdma0_wptr = 0x%x, "
+			 "last_sdma1_wptr = 0x%x\n", func->func_id, last_cp_wptr,
+			 last_sdma0_wptr, last_sdma1_wptr);
+		for(i = 0; i < status->cpc_wptr_poll_count; i++)
+			gim_dbg("vf[%u] compute-ring[%u] last_cpc_wptr[0x%x]\n",
+				func->func_id, i, cpc_wptr[i]);
+	} else {
+		gim_dbg("skip vf[%u] update due to not completed\n",
+			 func->func_id);
+		func->status.last_grbm_status = grbm_status;
+		func->status.last_srbm_status2 = srbm_status2;
+	}
+}
+
+static bool gim_vf_has_new_workload(struct function *func)
+{
+	uint32_t new_cp_wptr;
+	uint32_t new_sdma_wptr;
+	uint32_t new_cpc_wptr;
+
+	uint32_t grbm_status;
+	uint32_t srbm_status2;
+	int i;
+
+	struct vf_load_status *status = &func->status;
+
+	status->count_switch_total++;
+	grbm_status = func->status.last_grbm_status;
+	srbm_status2 = func->status.last_srbm_status2;
+
+	if (status->need_work) {
+		gim_dbg("VF[%u] need work\n", func->func_id);
+		return true;
+	}
+
+	if (REG_GET_FIELD(grbm_status, GRBM_STATUS, CP_BUSY) ||
+	    REG_GET_FIELD(srbm_status2, SRBM_STATUS2, SDMA_BUSY) ||
+	    REG_GET_FIELD(srbm_status2, SRBM_STATUS2, SDMA1_BUSY)) {
+		gim_dbg("VF[%u] need run due to last time not completed\n",
+			 func->func_id);
+		return true;
+	}
+
+	new_cp_wptr = gim_read_vram_dword(func,
+					  status->cp_wptr_poll_pf_offset);
+	if (status->last_cp_wptr_completed != new_cp_wptr)
+		return true;
+
+	new_sdma_wptr = gim_read_vram_dword(func,
+					     status->sdma0_wptr_poll_pf_offset);
+	if (status->last_sdma0_wptr_completed != new_sdma_wptr)
+		return true;
+
+	new_sdma_wptr = gim_read_vram_dword(func,
+					     status->sdma1_wptr_poll_pf_offset);
+	if (status->last_sdma1_wptr_completed != new_sdma_wptr)
+		return true;
+
+	for (i = 0; i < status->cpc_wptr_poll_count; i++) {
+		new_cpc_wptr = gim_read_vram_dword(func,
+					status->cpc_wptr_poll_pf_offset[i]);
+		if (status->last_cpc_wptr_completed[i] != new_cpc_wptr)
+			return true;
+	}
+
+	status->count_switch_skipped++;
+	gim_dbg("VF[%u] no workload\n", func->func_id);
+	return false;
+}
+
+static int gim_get_next_running_vf(struct adapter *adapt,
+				   struct function **next_func,
+				   struct function_list_node **next_node)
+{
+	int found = 0;
+	int opt = adapt->sched_opt;
+	struct function_list_node *curr = adapt->curr_running_func;
+
+	if (NULL == curr)
+		return 0;
+
+	switch (opt) {
+	case SCHEDULER__PREDICT_PERF:
+	case SCHEDULER__ROUND_ROBIN_SOLID:
+		*next_node = curr->next;
+		*next_func = curr->next->func;
+		found = 1;
+		break;
+	case SCHEDULER__ROUND_ROBIN_LIQUID:
+		curr = curr->next;
+		while (curr != adapt->curr_running_func) {
+			gim_dbg("justify whether VF[%u] will run\n",
+				 curr->func->func_id);
+			if ((is_on_run_list(curr->func) &&
+			    gim_vf_has_new_workload(curr->func))) {
+				found = 1;
+				*next_node = curr;
+				*next_func = curr->func;
+				gim_dbg("next VF[%u] will run\n",
+					(*next_func)->func_id);
+				break;
+			}
+
+			curr = curr->next;
+		}
+		break;
+	default:
+		gim_err("unknown schedule option\n");
+	}
+	return found;
+}
 
 void world_switch(struct adapter *adapt)
 {
@@ -2492,7 +2972,7 @@ void world_switch(struct adapter *adapt)
 	mutex_lock(&adapt->curr_running_func_mutex);
 
 	if (adapt->curr_running_func != NULL) {
-		if (!adapt->schedler_running) {
+		if (!adapt->scheduler_running) {
 			gim_info("World switch has been called but scheduler;"
 				" is not running\n");
 			gim_info(" - This is most likely due to a new VF;"
@@ -2503,16 +2983,10 @@ void world_switch(struct adapter *adapt)
 		 * more than one VFs or self switch
 		 * scheduler is not stopped
 		 */
-		if ((adapt->curr_running_func
-		     != adapt->curr_running_func->next
-		     ||	adapt->switch_to_itself)
-		     && adapt->schedler_running) {
-			next_node = adapt->curr_running_func->next;
-
-			curr = adapt->curr_running_func;
-			p_current_func = curr->func;
-			p_next_func = curr->next->func;
-
+		curr = adapt->curr_running_func;
+		p_current_func = curr->func;
+		if (gim_get_next_running_vf(adapt, &p_next_func, &next_node)) {
+			gim_update_vf_load_status(curr->func);
 			/*
 			 * gim_sched_reset
 			 * If only 1 func on run_list then current at load/run.
@@ -2574,6 +3048,11 @@ void world_switch(struct adapter *adapt)
 
 			if (adapt->curr_running_func != NULL)
 				resume_scheduler(adapt);
+		} else {
+			gim_dbg("still run VF[%u] because other VF has no work\n",
+				 adapt->curr_running_func->func->func_id);
+			gim_update_vf_load_status(curr->func);
+			resume_scheduler(adapt);
 		}
 	}
 
@@ -2630,15 +3109,8 @@ struct function *get_vf(struct adapter *adapt, uint32_t vf_id)
  * then QEMU will hold the MMIO access until the VF does become into context.
  * This is the most secure mode as QEMU (via pt-graphics.c) will trap any valid
  * (or invalid, ie viral) register accesses.
- *
- * There is also an unsecure model where the VM must be trusted not to make any
- * MMIO accesses either valid or invalid. There is no protection against a VM
- * making a direct MMIO access to another context. To enable unsecure mode the
- * "world_switch()" and "return()" statements at the beginning of this function
- * should be uncommented.
- *
  */
-int triger_world_switch(struct adapter *adapt, bool single_switch)
+int trigger_world_switch(struct adapter *adapt, bool single_switch)
 {
 	struct function_list_node *curr;
 
@@ -2650,9 +3122,10 @@ int triger_world_switch(struct adapter *adapt, bool single_switch)
 		gim_info("\n");
 	}
 
-	++in_triger_world_switch;
+	++in_trigger_world_switch;
 	if (curr != NULL
-		&& (curr != curr->next || adapt->switch_to_itself)) {
+		&& (curr != curr->next || adapt->switch_to_itself ||
+		    true == adapt->pf.user_option.valid)) {
 		adapt->single_switch = single_switch;
 
 		gim_dbg("signal QEMU for vf%d to release",
@@ -2660,7 +3133,7 @@ int triger_world_switch(struct adapter *adapt, bool single_switch)
 		world_switch(adapt);
 	}
 
-	--in_triger_world_switch;
+	--in_trigger_world_switch;
 	return GIM_OK;
 }
 
@@ -2699,16 +3172,18 @@ void work_handler(struct work_struct *work)
 static irqreturn_t adapter_interrupt_handler(int irq, void *dev_id)
 {
 	/* Execute the real isr with amdgpuv_device */
-	ih_execute((IhRoutine_t)ih_irq_process, dev_id);
-
-	/* TODO: check return value of ih_execute */
+	int ret = ih_execute((IhRoutine_t)ih_irq_process, dev_id);
+	
+	if (ret == -1) {
+		return IRQ_NONE;
+	}
 	return IRQ_HANDLED;
 }
 
 int adapter_interrupt_register(struct adapter *adapt)
 {
-	/* IRQF_DISABLED was depreted, IRQF_NOBALANCING caused PF can't
-	 * recieved interrupt on 3.17.1.
+	/* IRQF_DISABLED was deprecated, IRQF_NOBALANCING caused PF to be
+	 * unable to receive interrupt on 3.17.1.
 	 */
 	if (request_irq(adapt->pf.pci_dev->irq, adapter_interrupt_handler,
 		   0, gim_driver_name, (void *)adapt)) {
@@ -2833,7 +3308,7 @@ void check_smu_int(uint32_t bdf, char *comment)
 	}
 
 
-	/* Read the SMC_PC_C (program counter) several tims to
+	/* Read the SMC_PC_C (program counter) several times to
 	 * see if it is moving
 	 */
 	write_register(fn,  mmSMU_IND_INDEX_3, ixSMC_PC_C);
@@ -3126,8 +3601,8 @@ void dump_runlist(struct adapter *adapt)
  * Initialize the register 'init_state'.
  *
  * Use the PF Save area in the CSA as a storage location for the register
- * init_state. The ini_state is a known register state that can be used to
- * set the asic registers prior to starting a new VF.
+ * init_state. The init_state is a known register state that can be used
+ * to set the asic registers prior to starting a new VF.
  *
  * There is a bug (?) where the register state is not cleared on a
  * shutdown/init sequence, so the next time that a VF is restarted some of
@@ -3170,10 +3645,10 @@ int init_register_init_state(struct adapter *adapt)
 /*
  * Prior to submitting a GPU_INIT for a VF this function should be called
  * to set the register state to a known state.
- * Any failure from this fucntion should trigger a PF FLR.
+ * Any failure from this function should trigger a PF FLR.
  *
- * Alternatively it might be possible to call this function on shutdown of a VF
- * in order to improve startup performance.
+ * Alternatively, it might be possible to call this function on shutdown 
+ * of a VF in order to improve startup performance.
  */
 
 int load_register_init_state(struct adapter *adapt)
@@ -3315,7 +3790,7 @@ struct function_list_node *is_on_run_list(struct function *fn)
 
 	while (node != start_node) {
 		if (node->func == fn) {
-			gim_info("Found it!");
+			gim_dbg("Found VF[%u]!", node->func->func_id);
 			return node;
 		}
 		node = node->next;
@@ -3617,6 +4092,9 @@ static int gim_notify_reset(struct adapter *adapt)
 
 	/* Notify reset to active VFs */
 	curr = adapt->curr_running_func;
+	if (curr == NULL)
+		return 0;
+
 	do {
 		curr->func->in_flr = 1;
 
@@ -3631,7 +4109,8 @@ static int gim_notify_reset(struct adapter *adapt)
 
 	} while (curr != adapt->curr_running_func);
 
-	kcl_thread_sleep(10);
+	kcl_thread_sleep(10 * 1000);
+
 	return 0;
 }
 
@@ -3641,6 +4120,9 @@ static void gim_notify_reset_completion(struct adapter *adapt)
 
 	/* Notify reset completion to active VFs */
 	curr = adapt->curr_running_func;
+
+	if (curr == NULL)
+		return;
 
 	do {
 		if (curr->func->in_flr) {
@@ -3665,7 +4147,7 @@ static int gim_notify_reset_per_vf(struct adapter *adapt, struct function *vf)
 	mailbox_notify_flr(adapt, 0);
 	spin_unlock(&adapt->mailbox_lock);
 
-	kcl_thread_sleep(10);
+	kcl_thread_sleep(10 * 1000);
 	return 0;
 }
 
@@ -3729,6 +4211,7 @@ int gim_sched_reset_vf(struct adapter *adapt,
 			"This state not expected.\n",
 			vf_to_reset->func_id);
 
+	gim_clean_vf_load_status(vf_to_reset);
 	gim_notify_reset_completion_per_vf(adapt, vf_to_reset);
 
 	gim_info("end of VF FLR for VF%x\n", vf_to_reset->func_id);
@@ -3741,10 +4224,11 @@ int gim_sched_reset_gpu(struct adapter *adapt)
 {
 	int ret = 0;
 	struct function_list_node *curr_func;
+	struct function_list_node *ori_curr_func;
 
 	gim_info("Pause scheduler\n");
 	delete_timer(&adapt->sched_timer);
-	adapt->schedler_running = false;
+	adapt->scheduler_running = false;
 
 	/* Noitfy flr to active VFs */
 	gim_info("Notify reset to active VFs\n");
@@ -3760,11 +4244,18 @@ int gim_sched_reset_gpu(struct adapter *adapt)
 	gim_notify_reset_completion(adapt);
 
 	curr_func = adapt->curr_running_func;
+	ori_curr_func = adapt->curr_running_func;
 	while (curr_func != NULL) {
-		if (adapt->sched_opt == SCHEDULER__PREDICT_PERF)
+		if (adapt->sched_opt == SCHEDULER__PREDICT_PERF) {
 			mark_func_not_scheduled(curr_func->func);
-		else
+			curr_func = curr_func->next;
+			if (curr_func == ori_curr_func)
+				break;
+		}
+		else {
 			remove_from_run_list(curr_func->func);
+			curr_func = adapt->curr_running_func;
+		}
 	}
 
 	return ret;

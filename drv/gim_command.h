@@ -509,10 +509,11 @@ struct send_signal_input {
 *****************************************************************************/
 #define SCHEDULE_OPTION__KEY "sched_option"
 #define SCHEDULER__START               0
-#define SCHEDULER__ROUND_ROBIN         0
+#define SCHEDULER__ROUND_ROBIN_SOLID   0
 #define SCHEDULER__PREDICT_PERF        1
-#define SCHEDULER__DEFAULT             SCHEDULER__ROUND_ROBIN
-#define SCHEDULER__MAX                 SCHEDULER__PREDICT_PERF
+#define SCHEDULER__ROUND_ROBIN_LIQUID  2
+#define SCHEDULER__DEFAULT             SCHEDULER__ROUND_ROBIN_SOLID
+#define SCHEDULER__MAX                 SCHEDULER__ROUND_ROBIN_LIQUID
 
 /****************************************************************************
 * VF number Options
@@ -548,6 +549,15 @@ struct send_signal_input {
 #define SCHED_INTERVAL__START		0
 #define SCHED_INTERVAL__DEFAULT		SCHED_INTERVAL__START
 #define SCHED_INTERVAL__MAX		2000
+
+/****************************************************************************
+* Scheduler time quanta interval in microseconds Options
+* Set MAX to 999 microseconds.  Especially for performance tuning
+*****************************************************************************/
+#define SCHED_INTERVAL_US__KEY "sched_interval_us"
+#define SCHED_INTERVAL_US__START		0
+#define SCHED_INTERVAL_US__DEFAULT		SCHED_INTERVAL_US__START
+#define SCHED_INTERVAL_US__MAX		999
 
 /****************************************************************************
 * Some miscellaneous debug parameters

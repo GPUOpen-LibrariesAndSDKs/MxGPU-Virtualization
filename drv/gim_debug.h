@@ -60,7 +60,7 @@
  * 0x60 to 0x8a -> 43 locations
  */
 /* currently 9 entries */
-#define  REGISTER_LIST_FORMAT_SEPERATE_START     0x8b
+#define  REGISTER_LIST_FORMAT_SEPARATE_START     0x8b
 #define  VIRT_START                          0x8b
 #define  VIRT_LENGTH                         0x8c
 /* current length is 9, save 15 more locations (4 more indirect)
@@ -93,7 +93,7 @@ int gim_log_msg(const char *fmt, ...);
 			__LINE__, ##s); } while (0)
 
 #define gim_err(fmt, s...)	\
-	do { if (gim_get_log_level() >= GIM_LOG_LEVEL_INFO) \
+	do { if (gim_get_log_level() >= GIM_LOG_LEVEL_ERR) \
 		printk(KERN_ERR "gim error:(%s:%d) " fmt, __func__, \
 			__LINE__, ##s); } while (0)
 
@@ -110,5 +110,7 @@ void gim_exit_debug_interface(void);
 void gim_save_register(struct function *func);
 bool gim_check_register(struct function *func);
 void gim_dump_register(struct function *func);
+
+char *get_int(int *ret, char *in);
 
 #endif

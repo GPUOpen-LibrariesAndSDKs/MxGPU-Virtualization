@@ -65,7 +65,6 @@ void dump_pci_config(uint8_t *pci_buf, char *comment);
 void compare_pci_config(uint8_t *pci_buf, uint8_t *pci_buf2, char *comment);
 void pci_config_save(struct pci_dev *dev, uint8_t *buf, int count);
 void pci_config_restore(struct pci_dev *dev, uint8_t *buf, int count);
-void pci_set_vf_enable_bit(struct pci_dev *dev);
 void pci_cache_bridges(struct pci_device_id *dev_list,
 			int max_size, struct aer_item *aer_list);
 void pci_disable_bridge_error_reporting(struct aer_item *aer_list);
