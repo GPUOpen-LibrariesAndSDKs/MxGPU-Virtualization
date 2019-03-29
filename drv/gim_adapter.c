@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2017 Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (c) 2014-2019 Advanced Micro Devices, Inc. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -1749,6 +1749,19 @@ int run_vf(struct function *func)
 
 	/* record time of start to run vf */
 	getnstimeofday(&(func->time_log.active_last_tick));
+
+	if (is_pf) {
+		uint32_t tlb_control = pf_read_register(adapt,
+				mmMC_VM_MX_L1_TLB_CNTL);
+
+		if (!REG_GET_FIELD(tlb_control, MC_VM_MX_L1_TLB_CNTL,
+					SYSTEM_ACCESS_MODE)) {
+			tlb_control = REG_SET_FIELD(tlb_control,
+					MC_VM_MX_L1_TLB_CNTL, SYSTEM_ACCESS_MODE, 3);
+			pf_write_register(adapt, mmMC_VM_MX_L1_TLB_CNTL,
+					tlb_control);
+		}
+	}
 
 	return ret;
 }

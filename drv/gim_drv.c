@@ -49,7 +49,7 @@ char gim_driver_version[] = STR(DRV_VERSION);
 static const char gim_driver_string[] =
 		"GPU IOV MODULE";
 static const char gim_copyright[] =
-		"Copyright (c) 2014-2018 AMD Corporation.";
+		"Copyright (c) 2014-2017 Advanced Micro Devices, Inc. All rights reserved.";
 
 
 /* TBD: Tonga Device ID */

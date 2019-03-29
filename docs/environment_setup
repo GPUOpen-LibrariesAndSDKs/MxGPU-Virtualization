@@ -88,7 +88,7 @@ virtualized VGA device can not be shared by two or more running
 guest systems at the same time). Besides, the network on guest
 system should work fine.
 
-1.Windows7 64bit
+1.Windows(R)7 64bit
  1.1 Check the guest system IP address
  1.2 Install UltraVNC server on the guest system
  1.3 Download amdgpu-pro driver from(TBD)
@@ -100,7 +100,7 @@ system should work fine.
  1.5 Connect the guest through VNC remote desktop a few seconds after
      the screen freezes
 
-2.Windows10 TH2 64bit
+2.Windows(R)10 TH2 64bit
  2.1 Check the guest system IP address
  2.2 Install UltraVNC server on the guest system
  2.3 Download amdgpu-pro driver from(TBD)

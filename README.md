@@ -1,7 +1,7 @@
 # GIM
 
 ```javascript
-Copyright (c) 2014-2018 Advanced Micro Devices, Inc. All rights reserved.
+Copyright (c) 2014-2019 Advanced Micro Devices, Inc. All rights reserved.
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -105,3 +105,7 @@ THE SOFTWARE
 
  - 2.0 (2018/9/30)
         Fix some issues for AMD S7150 series.
+
+ - 3.0 (2019/3/28)
+	Adding support for mixed guest OS.
+	Fix some issues for AMD S7150 series.
