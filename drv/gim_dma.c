@@ -48,11 +48,11 @@ void *map_vf_fb(struct pci_dev *pdev);
  */
 static int wait_dma_ready(struct adapter *adapt)
 {
-	struct timespec start_time;
+	struct TIMESPECTYPE start_time;
 	unsigned long dma_cntl = 0;
 	int rc = 0;
 
-	getnstimeofday(&start_time);
+	GETNSTIMEOFDAY(&start_time);
 	do {
 		dma_cntl = pf_read_register(adapt, mmCP_DMA_CNTL);
 		/* DMA has 2 PIO commands in the FIFO
@@ -76,11 +76,11 @@ static int wait_dma_ready(struct adapter *adapt)
  */
 static int wait_dma_complete(struct adapter *adapt)
 {
-	struct timespec start_time;
+	struct TIMESPECTYPE start_time;
 	unsigned int cp_stat = 0;
 	int rc = 0;
 
-	getnstimeofday(&start_time);
+	GETNSTIMEOFDAY(&start_time);
 	do {
 		cp_stat = pf_read_register(adapt, mmCP_STAT);
 	} while ((cp_stat & 0x80400000)/* CP_BUSY or DMA_BUSY */
