@@ -28,6 +28,7 @@
 #include <linux/timer.h>
 #include <linux/hrtimer.h>
 #include <linux/workqueue.h>
+#include <linux/version.h>
 #include "gim_fb.h"
 #include "gim_pci.h"
 #include "gim_flr.h"
@@ -99,16 +100,33 @@ union physical_address {
 
 
 #define MAX_MSG_LEN  64
+
+/* Kernel >= 5.0 removed some old timespec methods */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
+#define TIMESPECTYPE timespec
+#define TIMEVALTYPE  timeval
+#define TIMESPEC_ADD(x,y)   timespec_add((x),(y))
+#define TIMESPEC_SUB(x,y)   timespec_sub((x),(y))
+#define GETNSTIMEOFDAY(x)   getnstimeofday(x)
+#else
+#define TIMESPECTYPE timespec64
+#define TIMEVALTYPE  timespec64
+#define TIMESPEC_ADD(x,y)   timespec64_add((x),(y))
+#define TIMESPEC_SUB(x,y)   timespec64_sub((x),(y))
+#define GETNSTIMEOFDAY(x)   ktime_get_real_ts64(x)
+#define do_gettimeofday(x)  ktime_get_real_ts64(x)
+#endif
+
 struct op_time_log {
-	struct timeval init_start;
-	struct timeval init_end;
-	struct timeval finish_start;
-	struct timeval finish_end;
+	struct TIMEVALTYPE init_start;
+	struct TIMEVALTYPE init_end;
+	struct TIMEVALTYPE finish_start;
+	struct TIMEVALTYPE finish_end;
 	int reset_count;
-	struct timeval reset_time;
+	struct TIMEVALTYPE reset_time;
 	/* we need accurate time here*/
-	struct timespec active_last_tick;
-	struct timespec active_time;
+	struct TIMESPECTYPE active_last_tick;
+	struct TIMESPECTYPE active_time;
 };
 
 enum amdgim_option_mode {
@@ -413,7 +431,7 @@ struct adapter {
 	struct work_task irq_tasks[MAX_VIRTUAL_FUNCTIONS];
 	int vf_req_gpu_access;
 	/* the time when a VF enters full access mode*/
-	struct timespec start_time;
+	struct TIMESPECTYPE start_time;
 	/* timeout check timer*/
 	struct hrtimer timeout_timer;
 	/* record the last VF id that owns gpu*/
@@ -534,7 +552,7 @@ int gim_sched_reset_vf(struct adapter *adapt,
 			int command_status);
 
 int gim_sched_reset_gpu(struct adapter *adapt);
-struct timespec time_elapsed(struct timespec *ts_start);
+struct TIMESPECTYPE time_elapsed(struct TIMESPECTYPE *ts_start);
 void pause_scheduler(struct adapter *adapt);
 void resume_scheduler(struct adapter *adapt);
 int get_scheduler_time_interval(struct adapter *adapt, struct function *func);

@@ -54,7 +54,7 @@ char *amdgim_commands[AMDGIM_COMMAND_LEN] = {
 
 void amdgim_mutex_get_lock(struct amdgim_mutex_lock *mutexlock)
 {
-	struct timeval curr_t;
+	struct TIMEVALTYPE curr_t;
 
 	do {
 		spin_lock(&mutexlock->atom_lock);

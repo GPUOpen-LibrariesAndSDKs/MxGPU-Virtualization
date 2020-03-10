@@ -25,7 +25,6 @@
 
 
 #include <linux/pci.h>
-#include <linux/pci-aspm.h>
 
 #define PCI_EXT_CONFIG_OFFSET 256
 #define PCI_EXT_CONFIG_SIZE   4096

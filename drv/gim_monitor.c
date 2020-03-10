@@ -950,7 +950,7 @@ static int amdgim_op_gpuvf_vf(char *param, void *obj, void *result)
 	unsigned int temp;
 	unsigned int vf_candidate;
 
-	struct timeval cur_time;
+	struct TIMEVALTYPE cur_time;
 	struct function *p_func;
 	struct partition *part;
 	struct adapter *p_adapter;
