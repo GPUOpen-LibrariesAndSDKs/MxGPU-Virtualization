@@ -1488,7 +1488,7 @@ int handle_fullaccess_timeout(struct adapter *adapt)
 	struct function *func = NULL;
 	struct function *next_func = NULL;
 	struct function_list_node *node;
-	struct timespec time_diff;
+	struct TIMESPECTYPE time_diff;
 	unsigned long time_us;
 	int func_id = 0;
 
@@ -1664,7 +1664,7 @@ void signal_scheduler(void *pcontext)
 				/* set the timestamp for full access
 				 * timeout check
 				 */
-				getnstimeofday(&adapt->start_time);
+				GETNSTIMEOFDAY(&adapt->start_time);
 				/* send SIG_VF_EXCLUSIVE_MMIO to QEMU */
 				handle_req_gpu_init_access(adapt,
 				req_gpu_task->func_id, NO_RESET);
@@ -1685,7 +1685,7 @@ void signal_scheduler(void *pcontext)
 				/* set the timestamp for full access timeout
 				 * check
 				 */
-				getnstimeofday(&adapt->start_time);
+				GETNSTIMEOFDAY(&adapt->start_time);
 				handle_req_gpu_init_access(adapt,
 				req_gpu_task->func_id, RESET_REQUEST);
 
@@ -1717,7 +1717,7 @@ void signal_scheduler(void *pcontext)
 				/* set the timestamp for full access timeout
 				 * check
 				 */
-				getnstimeofday(&adapt->start_time);
+				GETNSTIMEOFDAY(&adapt->start_time);
 				/* send SIG_VF_EXCLUSIVE_MMIO to QEMU */
 				handle_req_gpu_fini_access(adapt,
 						req_gpu_task->func_id);

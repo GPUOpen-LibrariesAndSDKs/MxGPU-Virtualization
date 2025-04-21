@@ -35,7 +35,7 @@
 struct amdgim_mutex_lock {
 	bool locked;
 	struct mutex lock_mutex;
-	struct timeval timeout_start;
+	struct TIMEVALTYPE timeout_start;
 	spinlock_t atom_lock;
 };
 
