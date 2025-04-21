@@ -1,5 +1,7 @@
 # GIM
 
+# This repository has been replaced by https://github.com/amd/MxGPU-Virtualization. Please visit the new repository for support with current GPUs.
+
 ```javascript
 Copyright (c) 2014-2019 Advanced Micro Devices, Inc. All rights reserved.
 Permission is hereby granted, free of charge, to any person obtaining a copy
